@@ -236,12 +236,9 @@ export async function consumeRunEvents(
   since?: number
 ): Promise<void> {
   try {
-    const url = new URL(`${API_URL}/v1/runs/${runId}/events`);
-    if (since && since > 0) {
-      url.searchParams.set('since', String(since));
-    }
+    const url = `${API_URL}/v1/runs/${runId}/events${since && since > 0 ? `?since=${since}` : ''}`;
 
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         ...authHeaders,

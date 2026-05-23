@@ -161,6 +161,7 @@ export function useHermes() {
     await consumeRunEvents(
       runId,
       (event: HermesEvent) => {
+        setError(null);
         if (event.seq) {
           runSeqRef.current[runId] = Math.max(runSeqRef.current[runId] || 0, event.seq);
         }
@@ -172,6 +173,7 @@ export function useHermes() {
         );
       },
       () => {
+        setError(null);
         setIsRunning(false);
         setCurrentRunId(null);
         setMessages((prev) =>
@@ -348,6 +350,10 @@ export function useHermes() {
     }
   }, [loadThread, reconnectRun]);
 
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
   const clearChat = useCallback(() => {
     setMessages([]);
     setError(null);
@@ -363,6 +369,7 @@ export function useHermes() {
     currentThreadId,
     currentThreadTitle,
     error,
+    clearError,
     sendMessage,
     stopActiveRun,
     clearChat,

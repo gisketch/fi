@@ -11,11 +11,11 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: 'Hermes Personal Assistant',
-        short_name: 'Hermes',
+        name: 'Fi Personal Assistant',
+        short_name: 'Fi',
         description: 'iOS Native PWA for talking to your Hermes.dev AI agent',
-        theme_color: '#09090b',
-        background_color: '#09090b',
+        theme_color: '#000000',
+        background_color: '#000000',
         display: 'standalone',
         orientation: 'portrait',
         icons: [

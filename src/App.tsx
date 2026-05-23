@@ -1,40 +1,44 @@
-import { useState, useRef, useEffect } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import type { KeyboardEvent } from 'react';
-import { useHermes, ToolActivity, ChatSegment } from './hooks/useHermes';
+import { useHermes, ToolActivity, ChatMessage, ChatSegment } from './hooks/useHermes';
 import { getUsageData, listRuns, listThreads, RunSummary, ThreadSummary, UsageData } from './services/api';
+import { enableNotifications, getNotificationSupport } from './services/notifications';
 import { 
   ArrowUp, 
   StopCircle, 
   DangerTriangle, 
-  Restart,
   Code
 } from '@solar-icons/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Coins, Layers, Menu, RefreshCw, X } from 'lucide-react';
+import { Coins, Copy, Layers, Menu, RefreshCw, X } from 'lucide-react';
 import { MarkdownMessage } from './components/MarkdownMessage';
+import { VirtualMessage } from './components/VirtualMessage';
 
 const getToolStatusLabel = (tool: ToolActivity) => {
   const running = tool.status === 'running';
 
   switch (tool.tool) {
     case 'terminal':
-      return running ? 'Running a check…' : 'Checked result';
+      return running ? 'Running terminal…' : 'Ran terminal';
     case 'read_file':
+      return running ? 'Reading file…' : 'Read file';
     case 'search_files':
+      return running ? 'Searching files…' : 'Searched files';
     case 'memory':
-      return running ? 'Gathering context…' : 'Gathered context';
+      return running ? 'Searching session…' : 'Searched session';
     case 'write_file':
+      return running ? 'Writing file…' : 'Wrote file';
     case 'patch':
-      return running ? 'Making edits…' : 'Made edits';
+      return running ? 'Editing file…' : 'Edited file';
     case 'web_search':
     case 'browser':
-      return running ? 'Looking it up…' : 'Looked it up';
+      return running ? 'Browsing web…' : 'Browsed web';
     case 'cronjob':
       return running ? 'Scheduling work…' : 'Scheduled work';
     case 'clarify':
       return running ? 'Clarifying intent…' : 'Clarified intent';
     default:
-      return running ? 'Working through it…' : 'Finished a step';
+      return running ? 'Working through step…' : 'Finished step';
   }
 };
 
@@ -88,7 +92,7 @@ const chatEntrance = {
   transition: { duration: 0.34, ease: 'easeOut' },
 };
 
-const CharacterEntranceText = ({ text }: { text: string }) => (
+const CharacterEntranceText = memo(({ text }: { text: string }) => (
   <span aria-label={text} className="whitespace-pre-wrap break-words">
     {Array.from(text).map((char, index) => (
       <motion.span
@@ -102,34 +106,41 @@ const CharacterEntranceText = ({ text }: { text: string }) => (
       </motion.span>
     ))}
   </span>
-);
+));
+CharacterEntranceText.displayName = 'CharacterEntranceText';
 
-const ToolStatusText = ({ text, active }: { text: string; active: boolean }) => (
-  <span aria-label={text} className="inline-flex flex-wrap">
-    {Array.from(text).map((char, index) => (
-      <motion.span
-        key={`${char}-${index}`}
-        aria-hidden="true"
-        animate={active ? {
-          color: ['rgba(212,212,216,0.45)', 'rgba(255,255,255,0.95)', 'rgba(212,212,216,0.45)'],
-          textShadow: [
-            '0 0 0 rgba(255,255,255,0)',
-            '0 0 14px rgba(255,255,255,0.85)',
-            '0 0 0 rgba(255,255,255,0)',
-          ],
-        } : {}}
-        transition={active ? {
-          duration: 1.25,
-          repeat: Infinity,
-          ease: 'easeInOut',
-          delay: index * 0.045,
-        } : undefined}
-      >
-        {char}
-      </motion.span>
-    ))}
+const ToolStatusText = memo(({ text, active }: { text: string; active: boolean }) => (
+  <span aria-label={text} className="inline-flex flex-wrap items-baseline">
+    {Array.from(text).map((char, index) => {
+      if (char === ' ') {
+        return <span key={`space-${index}`} aria-hidden="true" className="inline-block w-[0.28em] shrink-0" />;
+      }
+
+      return (
+        <motion.span
+          key={`${char}-${index}`}
+          aria-hidden="true"
+          className="inline-block"
+          animate={active ? {
+            color: ['rgba(161,161,170,0.58)', 'rgba(244,244,245,0.82)', 'rgba(161,161,170,0.58)'],
+          } : {
+            color: 'rgba(113,113,122,0.72)',
+          }}
+          style={{ textShadow: 'none' }}
+          transition={active ? {
+            duration: 1.45,
+            repeat: Infinity,
+            ease: 'easeInOut',
+            delay: index * 0.045,
+          } : { duration: 0.2 }}
+        >
+          {char}
+        </motion.span>
+      );
+    })}
   </span>
-);
+));
+ToolStatusText.displayName = 'ToolStatusText';
 
 const ToolRunDialog = ({ tools, onClose }: { tools: ToolActivity[]; onClose: () => void }) => (
   <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 px-4 pb-4 backdrop-blur-xl sm:items-center" onClick={onClose}>
@@ -190,7 +201,7 @@ const formatSessionTime = (value?: number) => {
   return new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 };
 
-const ToolSegmentLine = ({ tool, tools, onOpen }: { tool: ToolActivity; tools: ToolActivity[]; onOpen: () => void }) => {
+const ToolSegmentLine = memo(({ tool, tools, onOpen }: { tool: ToolActivity; tools: ToolActivity[]; onOpen: () => void }) => {
   const active = tool.status === 'running';
   const failed = tool.status === 'failed';
 
@@ -210,16 +221,29 @@ const ToolSegmentLine = ({ tool, tools, onOpen }: { tool: ToolActivity; tools: T
       <ToolStatusText text={getToolStatusLabel(tool)} active={active} />
     </motion.button>
   );
-};
+});
+ToolSegmentLine.displayName = 'ToolSegmentLine';
 
-const AssistantSegments = ({ segments, tools, fallbackContent, onOpenTools }: {
+const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, onOpenTools }: {
   segments: ChatSegment[];
   tools: ToolActivity[];
   fallbackContent: string;
+  isRunning: boolean;
   onOpenTools: () => void;
 }) => {
   if (!segments.length && fallbackContent) {
     return <MarkdownMessage content={fallbackContent} />;
+  }
+
+  if (!segments.length && isRunning) {
+    const pendingTool: ToolActivity = {
+      id: 'pending-tool',
+      tool: 'pending',
+      status: 'running',
+    };
+    return (
+      <ToolSegmentLine tool={pendingTool} tools={tools} onOpen={onOpenTools} />
+    );
   }
 
   return (
@@ -233,6 +257,83 @@ const AssistantSegments = ({ segments, tools, fallbackContent, onOpenTools }: {
           <ToolSegmentLine key={segment.id} tool={segment.tool} tools={tools} onOpen={onOpenTools} />
         )
       ))}
+    </div>
+  );
+});
+AssistantSegments.displayName = 'AssistantSegments';
+
+const ChatMessageItem = memo(({ msg, onOpenTools }: { msg: ChatMessage; onOpenTools: (tools: ToolActivity[]) => void }) => {
+  if (msg.role === 'user') {
+    return (
+      <motion.div 
+        {...chatEntrance}
+        className="flex justify-end"
+      >
+        <div className="max-w-[86%] text-right font-sans-hermes text-[15px] font-light text-neutral-300 whitespace-pre-wrap break-words leading-relaxed">
+          <CharacterEntranceText text={msg.content} />
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div 
+      {...chatEntrance}
+      className="flex w-full min-w-0 flex-col items-start space-y-4"
+    >
+      {msg.segments.length || msg.content ? (
+        <div className="w-full min-w-0 font-serif-hermes text-[17px] leading-relaxed text-zinc-200 break-words [overflow-wrap:anywhere]">
+          <AssistantSegments
+            segments={msg.segments}
+            tools={msg.tools}
+            fallbackContent={msg.content}
+            isRunning={msg.status === 'running'}
+            onOpenTools={() => onOpenTools(msg.tools)}
+          />
+        </div>
+      ) : (
+        <div className="flex gap-1.5 py-2 pl-1 select-none">
+          <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+        </div>
+      )}
+    </motion.div>
+  );
+});
+ChatMessageItem.displayName = 'ChatMessageItem';
+
+const NotificationsDialog = ({ message, error, onEnable, onClose }: {
+  message: string | null;
+  error: string | null;
+  onEnable: () => void;
+  onClose: () => void;
+}) => {
+  const support = getNotificationSupport();
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 px-4 pb-4 backdrop-blur-xl sm:items-center" onClick={onClose}>
+      <motion.div role="dialog" aria-modal="true" aria-label="Notifications" initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} exit={{ opacity: 0, y: 12, filter: 'blur(8px)' }} transition={{ duration: 0.22 }} onClick={(event) => event.stopPropagation()} className="w-full max-w-xl overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950/95 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
+          <div>
+            <div className="font-serif-hermes text-[18px] italic text-zinc-200">Notifications</div>
+            <div className="font-sans-hermes text-[11px] text-neutral-600">PWA local notification test</div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full p-1 text-neutral-500 active:scale-95" aria-label="Close notifications"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="space-y-4 p-4">
+          <p className="font-serif-hermes text-[16px] italic leading-relaxed text-neutral-400">
+            Notifications need HTTPS, service workers, and browser permission. On iPhone, web push/local notifications work from an installed Home Screen PWA on iOS 16.4+.
+          </p>
+          <div className="rounded-2xl bg-white/[0.025] p-3 font-sans-hermes text-[12px] text-neutral-500">
+            Permission: {support.permission}
+            {support.reason && <div className="mt-1 text-neutral-600">{support.reason}</div>}
+          </div>
+          {message && <div className="rounded-2xl bg-white/[0.035] p-3 font-sans-hermes text-[12px] text-neutral-300">{message}</div>}
+          {error && <div className="rounded-2xl bg-red-950/20 p-3 font-sans-hermes text-[12px] text-red-200/70">{error}</div>}
+          <button type="button" onClick={onEnable} className="w-full rounded-2xl bg-white px-4 py-2.5 font-mono text-[12px] font-bold uppercase tracking-wider text-black active:scale-[0.99] disabled:opacity-40" disabled={!support.supported}>
+            Enable notifications
+          </button>
+        </div>
+      </motion.div>
     </div>
   );
 };
@@ -304,6 +405,7 @@ export default function App() {
     currentThreadId,
     currentThreadTitle,
     error,
+    clearError,
     sendMessage,
     stopActiveRun,
     clearChat,
@@ -321,6 +423,9 @@ export default function App() {
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -435,6 +540,24 @@ export default function App() {
     void refreshSessions();
   };
 
+  const openNotifications = () => {
+    setIsMenuOpen(false);
+    setNotificationMessage(null);
+    setNotificationError(null);
+    setIsNotificationsOpen(true);
+  };
+
+  const handleEnableNotifications = async () => {
+    setNotificationMessage(null);
+    setNotificationError(null);
+    try {
+      const message = await enableNotifications();
+      setNotificationMessage(message);
+    } catch (e) {
+      setNotificationError(e instanceof Error ? e.message : 'Failed to enable notifications');
+    }
+  };
+
   const handleConnectThread = async (threadId: string) => {
     try {
       await loadThread(threadId);
@@ -450,6 +573,22 @@ export default function App() {
       setIsSessionsOpen(false);
     } catch (e) {
       setSessionsError(e instanceof Error ? e.message : 'Failed to connect run');
+    }
+  };
+
+  const copyError = async () => {
+    if (!error) return;
+    try {
+      await navigator.clipboard.writeText(error);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = error;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
     }
   };
 
@@ -500,6 +639,13 @@ export default function App() {
                 >
                   Sessions
                 </button>
+                <button
+                  type="button"
+                  onClick={openNotifications}
+                  className="w-full rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider text-neutral-400 active:bg-white/[0.04]"
+                >
+                  Notifications
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -532,45 +678,16 @@ export default function App() {
           {/* Timeline of messages */}
           <div className="space-y-8 pb-24">
             <AnimatePresence initial={false}>
-              {messages.map((msg) => {
-                const isUser = msg.role === 'user';
+              {messages.map((msg, index) => {
+                const shouldVirtualize = index < messages.length - 6 && msg.status !== 'running';
+                const body = <ChatMessageItem msg={msg} onOpenTools={setToolDialogTools} />;
 
-                if (isUser) {
-                  return (
-                    <motion.div 
-                      key={msg.id}
-                      {...chatEntrance}
-                      className="flex justify-end"
-                    >
-                      <div className="max-w-[86%] text-right font-sans-hermes text-[15px] font-light text-neutral-300 whitespace-pre-wrap break-words leading-relaxed">
-                        <CharacterEntranceText text={msg.content} />
-                      </div>
-                    </motion.div>
-                  );
-                }
-
-                // AI Response block
-                return (
-                  <motion.div 
-                    key={msg.id}
-                    {...chatEntrance}
-                    className="flex w-full min-w-0 flex-col items-start space-y-4"
-                  >
-                    {msg.segments.length || msg.content ? (
-                      <div className="w-full min-w-0 font-serif-hermes text-[17px] leading-relaxed text-zinc-200 break-words [overflow-wrap:anywhere]">
-                        <AssistantSegments
-                          segments={msg.segments}
-                          tools={msg.tools}
-                          fallbackContent={msg.content}
-                          onOpenTools={() => setToolDialogTools(msg.tools)}
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex gap-1.5 py-2 pl-1 select-none">
-                        <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
-                      </div>
-                    )}
-                  </motion.div>
+                return shouldVirtualize ? (
+                  <VirtualMessage key={msg.id} rootRef={chatContainerRef} estimate={msg.role === 'user' ? 64 : 180}>
+                    {body}
+                  </VirtualMessage>
+                ) : (
+                  <div key={msg.id}>{body}</div>
                 );
               })}
             </AnimatePresence>
@@ -579,21 +696,30 @@ export default function App() {
       </main>
 
 
-      {/* Connection error panel */}
+      {/* Non-fatal sync/error panel */}
       {error && (
         <div className="mx-6 mb-4 px-4 py-2 bg-neutral-950 border border-neutral-900 rounded-xl flex items-center justify-between text-[13px] text-neutral-500 font-mono z-40 select-none">
-          <span className="truncate pr-4 flex items-center gap-2">
+          <span className="min-w-0 truncate pr-4 flex items-center gap-2">
             <DangerTriangle className="w-4 h-4 text-white shrink-0" />
-            Connection offline / API gateway error
+            <span className="truncate">Sync issue: {error}</span>
           </span>
-          <button 
-            tabIndex={-1}
-            onClick={() => window.location.reload()} 
-            className="text-[12px] font-bold text-white uppercase border border-neutral-800 px-2 py-0.5 rounded cursor-pointer"
-          >
-            <Restart className="w-2.5 h-2.5 inline mr-1" />
-            Sync
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button 
+              tabIndex={-1}
+              onClick={copyError} 
+              className="text-[12px] font-bold text-white uppercase border border-neutral-800 px-2 py-0.5 rounded cursor-pointer"
+            >
+              <Copy className="w-2.5 h-2.5 inline mr-1" />
+              Copy
+            </button>
+            <button 
+              tabIndex={-1}
+              onClick={clearError} 
+              className="text-[12px] font-bold text-white uppercase border border-neutral-800 px-2 py-0.5 rounded cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 
@@ -619,6 +745,17 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {isNotificationsOpen && (
+          <NotificationsDialog
+            message={notificationMessage}
+            error={notificationError}
+            onEnable={() => void handleEnableNotifications()}
+            onClose={() => setIsNotificationsOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Backdrop overlay for focus dismissal when input card is expanded */}
       <AnimatePresence>
         {isPromptExpanded && (
@@ -634,14 +771,14 @@ export default function App() {
       </AnimatePresence>
 
       {/* Bottom Message Composition - Unified Single Container layout transition */}
-      <footer className="w-full shrink-0 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-transparent z-40 relative">
+      <footer className="w-full shrink-0 px-4 pt-3 pb-0 sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-transparent z-40 relative">
         <div className="max-w-xl mx-auto">
           
           <div
             className={`ethereal-card shadow-2xl relative mx-auto overflow-hidden rounded-[24px] ${
               isPromptExpanded 
-                ? 'max-w-xl p-4 pb-5 z-40' 
-                : 'max-w-[240px] pt-2.5 pb-3.5 px-4 cursor-pointer hover:border-white/15 select-none active:scale-95'
+                ? 'max-w-xl p-4 sm:pb-5 z-40' 
+                : 'max-w-[240px] py-2.5 sm:pb-3.5 px-4 cursor-pointer hover:border-white/15 select-none active:scale-95'
             }`}
             onClick={!isPromptExpanded ? () => {
               setIsPromptExpanded(true);

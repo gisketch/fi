@@ -1,4 +1,4 @@
-import { Fragment, ReactNode, useState } from 'react';
+import { Fragment, memo, ReactNode, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Code, Table2, X } from 'lucide-react';
 
@@ -320,7 +320,7 @@ const MarkdownPreviewDialog = ({ preview, onClose }: { preview: PreviewState; on
   </div>
 );
 
-export function MarkdownMessage({ content }: MarkdownMessageProps) {
+export const MarkdownMessage = memo(function MarkdownMessage({ content }: MarkdownMessageProps) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const blocks = parseBlocks(content);
 
@@ -338,4 +338,4 @@ export function MarkdownMessage({ content }: MarkdownMessageProps) {
       {preview && <MarkdownPreviewDialog preview={preview} onClose={() => setPreview(null)} />}
     </>
   );
-}
+});
