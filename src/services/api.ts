@@ -3,22 +3,70 @@
 const API_URL = import.meta.env.VITE_API_URL || 'https://fi.gisketch.com';
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || 'fi-gisketch-dashboard';
 
+const authHeaders = {
+  'Authorization': `Bearer ${API_TOKEN}`,
+};
+
 export interface UsageData {
   ts: string;
   deepseek: {
     total: number;
     currency: string;
   };
-  codex: {
-    plan: string;
-    '5hour': { used_percent: number };
-    weekly: { used_percent: number };
+  codex?: {
+    plan?: string;
+    '5hour'?: { used_percent?: number };
+    weekly?: { used_percent?: number };
+    week?: { used_percent?: number };
   };
 }
 
 export interface RunStartResponse {
   run_id: string;
   status: string;
+  thread_id?: string;
+  message_id?: number;
+}
+
+export interface RunSummary {
+  run_id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | string;
+  model?: string;
+  created_at?: number;
+  updated_at?: number;
+  thread_id?: string;
+  session_id?: string;
+  output?: string;
+  last_event?: string;
+}
+
+export interface RunsListResponse {
+  object: 'list';
+  data: RunSummary[];
+}
+
+export interface ThreadSummary {
+  id: string;
+  title?: string;
+  created_at?: number;
+  updated_at?: number;
+  message_count?: number;
+}
+
+export interface ThreadMessage {
+  id: number | string;
+  role: 'user' | 'assistant' | string;
+  content: string;
+  run_id?: string;
+}
+
+export interface ThreadDetail extends ThreadSummary {
+  messages: ThreadMessage[];
+}
+
+export interface ThreadsListResponse {
+  object: 'list';
+  data: ThreadSummary[];
 }
 
 export interface ToolProgressEvent {
@@ -27,41 +75,134 @@ export interface ToolProgressEvent {
   preview?: string;
   duration?: number;
   error?: boolean;
+  seq?: number;
 }
 
 export interface MessageDeltaEvent {
   event: 'message.delta';
   delta: string;
+  seq?: number;
 }
 
 export interface RunLifecycleEvent {
   event: 'run.created' | 'run.started' | 'run.completed' | 'run.failed';
   run_id: string;
   response?: string;
+  output?: string;
   error?: string;
+  seq?: number;
 }
 
 export type HermesEvent = ToolProgressEvent | MessageDeltaEvent | RunLifecycleEvent;
 
+async function parseJsonError(response: Response, fallback: string): Promise<Error> {
+  const err = await response.json().catch(() => ({}));
+  return new Error(err.error?.message || fallback);
+}
+
 /**
  * Starts a stateful run on the Hermes agent
  */
-export async function startRun(input: string, model = 'deepseek-v4-flash'): Promise<RunStartResponse> {
+export async function startRun(input: string, model = 'deepseek-v4-flash', threadId?: string): Promise<RunStartResponse> {
   const response = await fetch(`${API_URL}/v1/runs`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${API_TOKEN}`,
+      ...authHeaders,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       input,
       model,
+      ...(threadId ? { thread_id: threadId } : {}),
     }),
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Failed to start run: ${response.statusText}`);
+    throw await parseJsonError(response, `Failed to start run: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+export async function createThread(title: string): Promise<ThreadSummary> {
+  const response = await fetch(`${API_URL}/v1/threads`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title }),
+  });
+
+  if (!response.ok) {
+    throw await parseJsonError(response, `Failed to create thread: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+export async function listThreads(): Promise<ThreadSummary[]> {
+  const response = await fetch(`${API_URL}/v1/threads`, {
+    headers: authHeaders,
+  });
+
+  if (!response.ok) {
+    throw await parseJsonError(response, `Failed to list threads: ${response.statusText}`);
+  }
+
+  const data = await response.json() as ThreadsListResponse;
+  return data.data || [];
+}
+
+export async function getThread(threadId: string): Promise<ThreadDetail> {
+  const response = await fetch(`${API_URL}/v1/threads/${threadId}`, {
+    headers: authHeaders,
+  });
+
+  if (!response.ok) {
+    throw await parseJsonError(response, `Failed to get thread: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+export async function sendThreadMessage(threadId: string, content: string, model = 'deepseek-v4-flash'): Promise<RunStartResponse> {
+  const response = await fetch(`${API_URL}/v1/threads/${threadId}/messages`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ content, model }),
+  });
+
+  if (!response.ok) {
+    throw await parseJsonError(response, `Failed to send thread message: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+export async function listRuns(): Promise<RunSummary[]> {
+  const response = await fetch(`${API_URL}/v1/runs`, {
+    headers: authHeaders,
+  });
+
+  if (!response.ok) {
+    throw await parseJsonError(response, `Failed to list runs: ${response.statusText}`);
+  }
+
+  const data = await response.json() as RunsListResponse;
+  return data.data || [];
+}
+
+export async function getRun(runId: string): Promise<RunSummary> {
+  const response = await fetch(`${API_URL}/v1/runs/${runId}`, {
+    headers: authHeaders,
+  });
+
+  if (!response.ok) {
+    throw await parseJsonError(response, `Failed to get run: ${response.statusText}`);
   }
 
   return response.json();
@@ -74,7 +215,7 @@ export async function stopRun(runId: string): Promise<void> {
   const response = await fetch(`${API_URL}/v1/runs/${runId}/stop`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${API_TOKEN}`,
+      ...authHeaders,
       'Content-Type': 'application/json',
     },
   });
@@ -91,13 +232,19 @@ export async function consumeRunEvents(
   runId: string,
   onEvent: (event: HermesEvent) => void,
   onClose: () => void,
-  onError: (error: Error) => void
+  onError: (error: Error) => void,
+  since?: number
 ): Promise<void> {
   try {
-    const response = await fetch(`${API_URL}/v1/runs/${runId}/events`, {
+    const url = new URL(`${API_URL}/v1/runs/${runId}/events`);
+    if (since && since > 0) {
+      url.searchParams.set('since', String(since));
+    }
+
+    const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${API_TOKEN}`,
+        ...authHeaders,
         'Accept': 'text/event-stream',
       },
     });
@@ -122,8 +269,6 @@ export async function consumeRunEvents(
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      
-      // Save last incomplete line in buffer
       buffer = lines.pop() || '';
 
       for (const line of lines) {
@@ -143,7 +288,6 @@ export async function consumeRunEvents(
       }
     }
 
-    // Process any remaining buffer
     if (buffer.trim().startsWith('data: ')) {
       const dataStr = buffer.trim().slice(6).trim();
       if (dataStr !== '[DONE]') {

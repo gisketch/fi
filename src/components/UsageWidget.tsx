@@ -7,6 +7,10 @@ export function UsageWidget() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const codexPlan = data?.codex?.plan || 'unknown';
+  const fiveHourPercent = data?.codex?.['5hour']?.used_percent ?? 0;
+  const weeklyPercent = data?.codex?.weekly?.used_percent ?? data?.codex?.week?.used_percent ?? 0;
+
   const fetchData = async () => {
     setLoading(true);
     setError(null);
@@ -78,7 +82,7 @@ export function UsageWidget() {
                 <span>Codex Plan</span>
               </div>
               <span className="text-[10px] font-bold text-violet-400 uppercase bg-violet-950/40 px-1.5 py-0.5 rounded border border-violet-900/50">
-                {data.codex.plan}
+                {codexPlan}
               </span>
             </div>
             
@@ -87,12 +91,12 @@ export function UsageWidget() {
               <div>
                 <div className="flex justify-between text-[9px] text-zinc-500">
                   <span>5-Hour Quota</span>
-                  <span className="font-semibold text-zinc-300">{data.codex['5hour'].used_percent}%</span>
+                  <span className="font-semibold text-zinc-300">{fiveHourPercent}%</span>
                 </div>
                 <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-0.5 overflow-hidden">
                   <div 
                     className="bg-gradient-to-r from-violet-500 to-indigo-500 h-full rounded-full transition-all duration-500" 
-                    style={{ width: `${data.codex['5hour'].used_percent}%` }}
+                    style={{ width: `${fiveHourPercent}%` }}
                   />
                 </div>
               </div>
@@ -101,12 +105,12 @@ export function UsageWidget() {
               <div>
                 <div className="flex justify-between text-[9px] text-zinc-500">
                   <span>Weekly Limit</span>
-                  <span className="font-semibold text-zinc-300">{data.codex.weekly.used_percent}%</span>
+                  <span className="font-semibold text-zinc-300">{weeklyPercent}%</span>
                 </div>
                 <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-0.5 overflow-hidden">
                   <div 
                     className="bg-gradient-to-r from-indigo-500 to-pink-500 h-full rounded-full transition-all duration-500" 
-                    style={{ width: `${data.codex.weekly.used_percent}%` }}
+                    style={{ width: `${weeklyPercent}%` }}
                   />
                 </div>
               </div>
