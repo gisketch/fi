@@ -5,3 +5,15 @@ publish = "dist"
 
 [build.environment]
 SECRETS_SCAN_OMIT_KEYS = "VITE_API_URL,VITE_API_TOKEN"
+
+[[redirects]]
+from = "/api/*"
+to = "https://fi.gisketch.com/:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/usage-api/*"
+to = "http://167.254.240.228:8088/:splat"
+status = 200
+force = true

@@ -96,8 +96,19 @@ export interface RunLifecycleEvent {
 export type HermesEvent = ToolProgressEvent | MessageDeltaEvent | RunLifecycleEvent;
 
 async function parseJsonError(response: Response, fallback: string): Promise<Error> {
-  const err = await response.json().catch(() => ({}));
-  return new Error(err.error?.message || fallback);
+  const text = await response.text().catch(() => '');
+  let message = '';
+
+  if (text) {
+    try {
+      const err = JSON.parse(text);
+      message = err.error?.message || err.message || '';
+    } catch {
+      message = text.slice(0, 240);
+    }
+  }
+
+  return new Error(message || `${fallback} (${response.status})`);
 }
 
 /**
