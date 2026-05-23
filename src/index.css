@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  --color-zinc-950: #000000;
+  --color-zinc-900: #050505;
+  --color-zinc-800: #121212;
+  --color-zinc-700: #1c1c1c;
+}
+
+body {
+  background-color: #000000;
+  /* Dotted grid pattern matching reference image */
+  background-image: 
+    radial-gradient(circle at top, rgba(124, 58, 237, 0.08), transparent 60%),
+    radial-gradient(circle at bottom, rgba(59, 130, 246, 0.05), transparent 60%),
+    radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 20px 20px;
+  background-attachment: fixed;
+  color: #ffffff;
+  font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom Font classes */
+.font-serif-hermes {
+  font-family: 'Fraunces', Georgia, serif;
+}
+
+.font-sans-hermes {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+/* iOS Standalone Momentum Scrollable */
+.ios-scrollable {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Ethereal Deep Glassmorphism matching reference image */
+.ethereal-card {
+  background: rgba(10, 10, 10, 0.45);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ethereal-pill {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.ethereal-pill:active {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Standalone iOS PWA SafeArea Spacing */
+.safe-pt {
+  padding-top: calc(env(safe-area-inset-top) + 0.5rem);
+}
+
+.safe-pb {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+}
+
+.safe-mb {
+  margin-bottom: env(safe-area-inset-bottom);
+}
+
+/* Ethereal White Glow Pulse */
+@keyframes pulse-white {
+  0%, 100% {
+    opacity: 0.3;
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.3);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 16px rgba(255, 255, 255, 0.85);
+  }
+}
+
+.pulse-white-glow {
+  animation: pulse-white 2.2s infinite ease-in-out;
+}

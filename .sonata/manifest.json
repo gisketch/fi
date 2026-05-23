@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "project": "fi-ui",
+  "agents": [
+    "codex",
+    "copilot",
+    "claude",
+    "pi",
+    "antigravity"
+  ],
+  "context": [
+    "serena"
+  ],
+  "createdBy": "sonata",
+  "createdAt": "2026-05-23",
+  "updatedAt": "2026-05-23T04:33:37.419Z"
+}

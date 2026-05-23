@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+coverage/
+
+# sonata:block=context-tools:start
+# Local agent/runtime noise
+.pi/sessions/
+.serena/cache/
+.serena/logs/
+# sonata:block=context-tools:end
