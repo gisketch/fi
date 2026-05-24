@@ -14,9 +14,11 @@ export type TerminalUnlockResponse = {
 const defaultGatewayUrl = 'https://fi-terminal.gisketch.com';
 const terminalTokenKey = 'fi_terminal_gateway_token';
 const terminalProfileKey = 'fi_terminal_ssh_profile';
+const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
+const isLocalBrowser = typeof window !== 'undefined' && localHosts.has(window.location.hostname);
 
 export const TERMINAL_GATEWAY_URL = (
-  import.meta.env.VITE_TERMINAL_GATEWAY_URL || defaultGatewayUrl
+  isLocalBrowser ? '/terminal-gateway' : import.meta.env.VITE_TERMINAL_GATEWAY_URL || defaultGatewayUrl
 ).replace(/\/+$/, '');
 
 export const defaultTerminalProfile = (): TerminalSshProfile => ({
@@ -99,9 +101,9 @@ export class TerminalGatewayClient {
   }
 
   static terminalWsUrl(token: string): string {
-    const url = new URL(TERMINAL_GATEWAY_URL);
+    const url = new URL(TERMINAL_GATEWAY_URL, window.location.origin);
     url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
-    url.pathname = '/terminal';
+    url.pathname = `${url.pathname.replace(/\/$/, '')}/terminal`;
     url.search = '';
     url.searchParams.set('token', token);
     return url.toString();

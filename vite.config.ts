@@ -58,6 +58,12 @@ export default defineConfig({
         target: 'http://167.254.240.228:8088',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/usage-api/, ''),
+      },
+      '/terminal-gateway': {
+        target: 'https://fi-terminal.gisketch.com',
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path) => path.replace(/^\/terminal-gateway/, ''),
       }
     }
   }

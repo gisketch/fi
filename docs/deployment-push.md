@@ -57,6 +57,8 @@ Browser storage:
 
 The PIN itself is not stored. The terminal dialog reuses the app unlock token and does not ask for a second PIN. SSH credentials stay browser-local until the user opens a terminal session, then they are sent directly to the terminal gateway WebSocket.
 
+Local development uses Vite proxy route `/terminal-gateway` to avoid browser CORS from `localhost`. Production uses `VITE_TERMINAL_GATEWAY_URL`.
+
 ## Push API
 
 Browser endpoints:
