@@ -6,6 +6,7 @@ import { getUsageData, UsageData } from './services/api';
 import HermesGateway from './services/hermesGateway';
 import { HermesRestClient } from './services/hermesRest';
 import { TerminalGatewayClient, terminalStorage } from './services/terminalGateway';
+import { applyPwaUpdate, checkForPwaUpdate, subscribePwaUpdates, type PwaUpdateState } from './services/pwaUpdates';
 import { StoredSession, Usage } from './types/hermes';
 import { SessionsDialog } from './components/dialogs/SessionsDialog';
 import { ControlCenterDialog } from './components/dialogs/ControlCenterDialog';
@@ -18,7 +19,7 @@ import {
   Code
 } from '@solar-icons/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Coins, Copy, Gauge, KeyRound, Layers, Menu, Terminal, X, Brain, Cpu } from 'lucide-react';
+import { Check, Coins, Copy, Gauge, KeyRound, Layers, Menu, RefreshCw, Terminal, X, Brain, Cpu } from 'lucide-react';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { VirtualMessage } from './components/VirtualMessage';
 import {
@@ -859,6 +860,12 @@ function AppShell() {
   const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(readAppearanceSettings);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [pwaUpdate, setPwaUpdate] = useState<PwaUpdateState>({
+    updateAvailable: false,
+    offlineReady: false,
+    checking: false,
+    message: null,
+  });
   const [slashCommands, setSlashCommands] = useState<SlashCommandOption[]>([]);
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
   const [slashCommandsError, setSlashCommandsError] = useState<string | null>(null);
@@ -884,6 +891,8 @@ function AppShell() {
     document.documentElement.dataset.motionMode = appearanceSettings.motionMode;
     document.documentElement.dataset.fontMode = appearanceSettings.fontMode;
   }, [appearanceSettings]);
+
+  useEffect(() => subscribePwaUpdates(setPwaUpdate), []);
 
   // Sync usage balance silently in background
   useEffect(() => {
@@ -1275,6 +1284,11 @@ function AppShell() {
     setIsControlCenterOpen(true);
   };
 
+  const handleCheckForUpdate = () => {
+    setIsMenuOpen(false);
+    void checkForPwaUpdate();
+  };
+
   const openTerminal = () => {
     setFooterPicker(null);
     setIsPromptExpanded(false);
@@ -1428,6 +1442,16 @@ function AppShell() {
                 >
                   Appearance
                 </button>
+                <button
+                  type="button"
+                  onClick={pwaUpdate.updateAvailable ? () => void applyPwaUpdate() : handleCheckForUpdate}
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider active:bg-white/[0.04] ${
+                    pwaUpdate.updateAvailable ? 'text-zinc-100' : 'text-neutral-400'
+                  }`}
+                >
+                  <span>{pwaUpdate.updateAvailable ? 'Update' : pwaUpdate.checking ? 'Checking' : 'Check update'}</span>
+                  <RefreshCw className={`h-3.5 w-3.5 ${pwaUpdate.checking ? 'animate-spin' : ''}`} />
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1502,6 +1526,44 @@ function AppShell() {
           </div>
         </div>
       </main>
+
+      <AnimatePresence>
+        {(pwaUpdate.updateAvailable || pwaUpdate.message) && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.18 }}
+            className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] mx-auto flex max-w-xl items-center justify-between gap-3 rounded-2xl border border-white/[0.08] bg-neutral-950/95 px-4 py-3 shadow-2xl backdrop-blur-xl"
+          >
+            <div className="min-w-0">
+              <div className="font-serif-hermes text-[16px] italic text-zinc-200">
+                {pwaUpdate.updateAvailable ? 'Update ready' : 'Fi status'}
+              </div>
+              <div className="truncate font-mono text-[10px] uppercase tracking-wider text-neutral-600">
+                {pwaUpdate.updateAvailable ? 'Install latest build' : pwaUpdate.message}
+              </div>
+            </div>
+            {pwaUpdate.updateAvailable ? (
+              <button
+                type="button"
+                onClick={() => void applyPwaUpdate()}
+                className="shrink-0 rounded-full bg-white px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-black active:scale-95"
+              >
+                Update
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setPwaUpdate((current) => ({ ...current, message: null }))}
+                className="shrink-0 rounded-full border border-white/[0.08] px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-neutral-400 active:scale-95"
+              >
+                Dismiss
+              </button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
 
       {/* Non-fatal sync/error panel */}

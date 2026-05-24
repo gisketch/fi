@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png', 'icons/fi-icon-192.png', 'icons/fi-icon-512.png', 'push-handler.js'],
       workbox: {
         importScripts: ['/push-handler.js']

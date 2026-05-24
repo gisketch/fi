@@ -100,6 +100,18 @@ Payload fields:
 5. Accept the iOS permission prompt.
 6. Send a server push through `POST /push-api/send`.
 
+## PWA Updates
+
+Fi registers the service worker in prompt mode. When Netlify has a new build and the installed PWA detects it, Fi shows an `Update ready` chip. Tap `Update` to activate the new service worker and reload onto the latest bundle.
+
+Manual check:
+
+```txt
+Menu -> Check update
+```
+
+If iOS keeps an older Home Screen app open, fully close Fi from the app switcher, reopen it, then use `Menu -> Check update`.
+
 iOS requirements:
 
 - iOS/iPadOS 16.4+.
