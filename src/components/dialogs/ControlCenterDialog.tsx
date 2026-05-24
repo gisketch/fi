@@ -6,6 +6,7 @@ import { X, Settings, Cpu, ToggleLeft, ToggleRight, Hammer, Award, RefreshCw, Ch
 interface ControlCenterDialogProps {
   sessionId: string | null;
   onClose: () => void;
+  reduceMotion?: boolean;
 }
 
 const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? value as T[] : []);
@@ -80,7 +81,7 @@ const configValueFromPayload = (payload: any, key: string): string => {
 const reasoningOptions = ['auto', 'medium', 'high', 'low', 'none'];
 const thinkingModeOptions = ['collapsed', 'truncated', 'full'];
 
-export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogProps) => {
+export const ControlCenterDialog = ({ sessionId, onClose, reduceMotion = false }: ControlCenterDialogProps) => {
   const [activeTab, setActiveTab] = useState<'config' | 'models' | 'tools' | 'skills'>('config');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -255,9 +256,9 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
         role="dialog"
         aria-modal="true"
         aria-label="Hermes Control Center"
-        initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }}
+        initial={{ opacity: 0, y: 18, filter: reduceMotion ? 'blur(0px)' : 'blur(8px)' }}
         animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-        exit={{ opacity: 0, y: 12, filter: 'blur(8px)' }}
+        exit={{ opacity: 0, y: 12, filter: reduceMotion ? 'blur(0px)' : 'blur(8px)' }}
         transition={{ duration: 0.22 }}
         onClick={(event) => event.stopPropagation()}
         className="max-h-[82vh] w-full max-w-xl overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950/95 shadow-2xl flex flex-col"

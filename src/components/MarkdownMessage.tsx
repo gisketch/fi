@@ -1,7 +1,7 @@
 import { Fragment, memo, ReactNode, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
-import { Code, Table2, X } from 'lucide-react';
+import { Code, Maximize2, Table2, X } from 'lucide-react';
 
 interface MarkdownMessageProps {
   content: string;
@@ -83,13 +83,11 @@ const parseBlocks = (content: string): Block[] => {
 };
 
 const renderAnimatedText = (text: string, keyPrefix: string, reduceMotion: boolean): ReactNode[] => {
-  if (reduceMotion) return [text];
-
   return (
   Array.from(text).map((char, index) => (
     <motion.span
       key={`${keyPrefix}-char-${index}`}
-      initial={{ opacity: 0, filter: 'blur(6px)' }}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, filter: 'blur(6px)' }}
       animate={{ opacity: 1, filter: 'blur(0px)' }}
       transition={{ duration: 0.28, delay: Math.min(index * 0.008, 0.35), ease: 'easeOut' }}
     >
@@ -217,58 +215,116 @@ const renderTextLine = (line: string, key: string, reduceMotion: boolean) => {
   );
 };
 
+const trimEdgeBlankLines = (lines: string[]) => {
+  let start = 0;
+  let end = lines.length;
+
+  while (start < end && !lines[start].trim()) start += 1;
+  while (end > start && !lines[end - 1].trim()) end -= 1;
+
+  return lines.slice(start, end);
+};
+
 const renderTextBlock = (block: TextBlock, blockIndex: number, reduceMotion: boolean) => (
   <div key={`text-${blockIndex}`} className="space-y-1 break-words [overflow-wrap:anywhere]">
-    {block.lines.map((line, lineIndex) => renderTextLine(line, `text-${blockIndex}-${lineIndex}`, reduceMotion))}
+    {trimEdgeBlankLines(block.lines).map((line, lineIndex) => renderTextLine(line, `text-${blockIndex}-${lineIndex}`, reduceMotion))}
   </div>
 );
 
 const renderCodeCard = (block: CodeBlock, blockIndex: number, openPreview: (preview: PreviewState) => void) => {
-  const lineCount = block.code.trim() ? block.code.trim().split('\n').length : 0;
+  const lines = block.code.trim() ? block.code.trim().split('\n') : [];
+  const lineCount = lines.length;
   const title = block.language ? `${block.language} code block` : 'Code block';
+  const clipped = lines.slice(0, 10).join('\n');
 
   return (
-    <button
+    <div
       key={`code-${blockIndex}`}
-      type="button"
-      onClick={() => openPreview({ title, block })}
-      className="my-3 flex w-full max-w-full items-center justify-between gap-3 rounded-2xl bg-white/[0.035] px-3 py-2.5 text-left text-neutral-400 active:scale-[0.99] transition-transform"
+      className="mt-3 mb-5 w-full max-w-full overflow-hidden rounded-2xl bg-white/[0.035] text-neutral-400"
     >
-      <span className="flex min-w-0 items-center gap-2">
-        <Code className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
-        <span className="truncate font-sans-hermes text-[13px]">See code block</span>
-      </span>
-      <span className="shrink-0 font-mono text-[11px] text-neutral-600">
-        {lineCount} lines
-      </span>
-    </button>
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.035] px-3 py-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <Code className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
+          <span className="truncate font-sans-hermes text-[13px]">{title}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => openPreview({ title, block })}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 active:scale-95"
+          aria-label="Maximize code block"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <pre className="fi-scrollbar max-h-[15rem] overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[12px] leading-6 text-neutral-300 [overflow-wrap:anywhere]"><code>{clipped}</code></pre>
+      {lineCount > 10 && (
+        <div className="border-t border-white/[0.035] px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-neutral-700">
+          Showing 10 of {lineCount} lines
+        </div>
+      )}
+    </div>
   );
 };
 
-const renderTableCard = (block: TableBlock, blockIndex: number, openPreview: (preview: PreviewState) => void) => {
+const renderTableCard = (block: TableBlock, blockIndex: number, openPreview: (preview: PreviewState) => void, reduceMotion: boolean) => {
   const columns = block.rows[0]?.length ?? 0;
   const rows = Math.max(block.rows.length - 1, 0);
 
   return (
-    <button
+    <div
       key={`table-${blockIndex}`}
-      type="button"
-      onClick={() => openPreview({ title: 'Table', block })}
-      className="my-3 flex w-full max-w-full items-center justify-between gap-3 rounded-2xl bg-white/[0.035] px-3 py-2.5 text-left text-neutral-400 active:scale-[0.99] transition-transform"
+      className="mt-3 mb-5 w-full max-w-full overflow-hidden rounded-2xl bg-white/[0.035] text-neutral-400"
     >
-      <span className="flex min-w-0 items-center gap-2">
-        <Table2 className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
-        <span className="truncate font-sans-hermes text-[13px]">See table</span>
-      </span>
-      <span className="shrink-0 font-mono text-[11px] text-neutral-600">
-        {rows}×{columns}
-      </span>
-    </button>
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.035] px-3 py-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <Table2 className="h-3.5 w-3.5 shrink-0 text-neutral-500" />
+          <span className="truncate font-sans-hermes text-[13px]">Table</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => openPreview({ title: 'Table', block })}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-neutral-500 active:scale-95"
+          aria-label="Maximize table"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="fi-scrollbar max-h-[15rem] overflow-auto">
+        <table className="min-w-max border-collapse font-sans-hermes text-[13px] leading-relaxed text-neutral-300">
+          <thead>
+            <tr>
+              {(block.rows[0] || []).map((cell, index) => (
+                <th key={index} className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#050505] px-3 py-2 text-left font-medium text-zinc-100 align-top shadow-[0_1px_0_rgba(255,255,255,0.04)]">
+                  {renderInline(cell, `table-${blockIndex}-h-${index}`, reduceMotion)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.slice(1, 11).map((row, rowIndex) => (
+              <tr key={rowIndex} className="border-b border-white/[0.035] last:border-0">
+                {(block.rows[0] || []).map((_, cellIndex) => (
+                  <td key={cellIndex} className="max-w-[240px] px-3 py-2 align-top text-neutral-400 break-words [overflow-wrap:anywhere]">
+                    {renderInline(row[cellIndex] || '', `table-${blockIndex}-${rowIndex}-${cellIndex}`, reduceMotion)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows > 10 && (
+        <div className="border-t border-white/[0.035] px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-neutral-700">
+          Showing 10 of {rows} rows
+        </div>
+      )}
+      <div className="sr-only">{rows} by {columns}</div>
+    </div>
   );
 };
 
 const renderCodePreview = (block: CodeBlock) => (
-  <pre className="max-h-[64vh] overflow-auto whitespace-pre p-4 font-mono text-[12px] leading-relaxed text-neutral-300">
+  <pre className="fi-scrollbar max-h-[64vh] overflow-auto whitespace-pre p-4 font-mono text-[12px] leading-relaxed text-neutral-300">
     <code>{block.code.trim()}</code>
   </pre>
 );
@@ -277,12 +333,12 @@ const renderTablePreview = (block: TableBlock, reduceMotion: boolean) => {
   const [head, ...body] = block.rows;
 
   return (
-    <div className="max-h-[64vh] overflow-auto">
+    <div className="fi-scrollbar max-h-[64vh] overflow-auto">
       <table className="min-w-max border-collapse font-sans-hermes text-[13px] leading-relaxed text-neutral-300">
         <thead>
           <tr>
             {head.map((cell, index) => (
-              <th key={index} className="sticky top-0 border-b border-white/[0.06] bg-neutral-950 px-3 py-2 text-left font-medium text-zinc-100 align-top">
+              <th key={index} className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#050505] px-3 py-2 text-left font-medium text-zinc-100 align-top shadow-[0_1px_0_rgba(255,255,255,0.04)]">
                 {renderInline(cell, `preview-h-${index}`, reduceMotion)}
               </th>
             ))}
@@ -338,7 +394,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({ content, reduceMo
           <Fragment key={index}>
             {block.type === 'text' && renderTextBlock(block, index, reduceMotion)}
             {block.type === 'code' && renderCodeCard(block, index, setPreview)}
-            {block.type === 'table' && renderTableCard(block, index, setPreview)}
+            {block.type === 'table' && renderTableCard(block, index, setPreview, reduceMotion)}
           </Fragment>
         ))}
       </div>

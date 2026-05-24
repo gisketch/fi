@@ -87,6 +87,23 @@ const appendThinkingToSegments = (segments: ChatSegment[], delta: string): ChatS
   return next;
 };
 
+const firstDefined = (...values: unknown[]) => values.find((value) => value !== undefined && value !== null && value !== '');
+
+const getToolInput = (payload: any) => firstDefined(
+  payload.arguments,
+  payload.args,
+  payload.input,
+  payload.params,
+  payload.command ? { command: payload.command } : undefined
+);
+
+const getToolOutput = (payload: any) => firstDefined(
+  payload.output,
+  payload.result,
+  payload.data,
+  payload.response
+);
+
 export function hermesEventReducer(state: HermesState, event: GatewayEvent): HermesState {
   const payload: any = event.payload || {};
 
@@ -109,8 +126,8 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
           ...state.sessionInfo,
           ...payload.config,
         },
-        isRunning: false,
-        statusLine: null,
+        isRunning: Boolean(payload.running),
+        statusLine: payload.running ? 'Session is running. Reconnecting to live updates...' : null,
       };
 
     case 'session.created':
@@ -181,6 +198,7 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
         return {
           ...state,
           isRunning: true,
+          statusLine: null,
         };
       }
       // Create running assistant message
@@ -197,6 +215,7 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
       return {
         ...state,
         isRunning: true,
+        statusLine: null,
         messages: [...state.messages, newAssistantMessage],
       };
     }
@@ -217,7 +236,7 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
         return msg;
       });
 
-      return { ...state, messages };
+      return { ...state, messages, statusLine: null };
     }
 
     case 'message.complete': {
@@ -312,7 +331,9 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
       const activity: ToolActivity = {
         id: activityId,
         tool: toolName,
-        preview: payload.preview || `Executing ${toolName}...`,
+        input: getToolInput(payload),
+        raw: payload,
+        preview: payload.preview,
         status: 'running',
       };
 
@@ -340,14 +361,14 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
         if (index === state.messages.length - 1 && msg.role === 'assistant') {
           const tools = msg.tools.map((t) => {
             if ((toolId && t.id === toolId) || (!toolId && toolName && t.tool === toolName && t.status === 'running')) {
-              return { ...t, preview: payload.preview || payload.text || t.preview };
+              return { ...t, raw: { ...(t.raw || {}), ...payload }, preview: payload.preview || payload.text || t.preview };
             }
             return t;
           });
 
           const segments = msg.segments.map((s) => {
             if (s.type === 'tool' && ((toolId && s.tool.id === toolId) || (!toolId && toolName && s.tool.tool === toolName && s.tool.status === 'running'))) {
-              return { ...s, tool: { ...s.tool, preview: payload.preview || payload.text || s.tool.preview } };
+              return { ...s, tool: { ...s.tool, raw: { ...(s.tool.raw || {}), ...payload }, preview: payload.preview || payload.text || s.tool.preview } };
             }
             return s;
           });
@@ -363,6 +384,7 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
     case 'tool.complete': {
       const toolId = payload.id;
       const toolName = payload.tool || payload.name || '';
+      const toolOutput = getToolOutput(payload);
       const messages = state.messages.map((msg, index) => {
         if (index === state.messages.length - 1 && msg.role === 'assistant') {
           const tools = msg.tools.map((t) => {
@@ -371,7 +393,9 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
                 ...t,
                 status: payload.error ? ('failed' as const) : ('completed' as const),
                 duration: payload.duration,
-                preview: payload.output || t.preview,
+                raw: { ...(t.raw || {}), ...payload },
+                output: toolOutput,
+                preview: toolOutput !== undefined ? String(toolOutput) : payload.preview || t.preview,
               };
             }
             return t;
@@ -385,7 +409,9 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
                   ...s.tool,
                   status: payload.error ? ('failed' as const) : ('completed' as const),
                   duration: payload.duration,
-                  preview: payload.output || s.tool.preview,
+                  raw: { ...(s.tool.raw || {}), ...payload },
+                  output: toolOutput,
+                  preview: toolOutput !== undefined ? String(toolOutput) : payload.preview || s.tool.preview,
                 },
               };
             }

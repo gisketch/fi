@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useState, useRef, useEffect } from 'react';
+import { lazy, memo, Suspense, useCallback, useState, useRef, useEffect } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useHermes } from './hooks/useHermes';
 import type { ToolActivity, ChatMessage, ChatSegment } from './hooks/useHermes';
@@ -9,29 +9,35 @@ import { TerminalGatewayClient, terminalStorage } from './services/terminalGatew
 import { applyPwaUpdate, checkForPwaUpdate, subscribePwaUpdates, type PwaUpdateState } from './services/pwaUpdates';
 import { StoredSession, Usage } from './types/hermes';
 import { SessionsDialog } from './components/dialogs/SessionsDialog';
+import { StartDashboard } from './components/sessions/StartDashboard';
+import type { SessionRowModel } from './components/sessions/SessionRows';
 import { ControlCenterDialog } from './components/dialogs/ControlCenterDialog';
 import { BlockingPromptsDialog } from './components/dialogs/BlockingPromptsDialog';
 import { enableNotifications, getNotificationSupport } from './services/notifications';
-import { 
-  ArrowUp, 
-  StopCircle, 
-  DangerTriangle, 
-  Code
-} from '@solar-icons/react';
+import ArrowUp from '@solar-icons/react/icons/arrows/ArrowUp';
+import StopCircle from '@solar-icons/react/icons/video/StopCircle';
+import DangerTriangle from '@solar-icons/react/icons/ui/DangerTriangle';
+import Code from '@solar-icons/react/icons/it/Code';
+import Command from '@solar-icons/react/icons/it/Command';
+import Database from '@solar-icons/react/icons/ui/Database';
+import FileText from '@solar-icons/react/icons/files/FileText';
+import FolderOpen from '@solar-icons/react/icons/folders/FolderOpen';
+import MinimalisticMagnifier from '@solar-icons/react/icons/search/MinimalisticMagnifier';
+import PenNewSquare from '@solar-icons/react/icons/messages/PenNewSquare';
+import WindowFrame from '@solar-icons/react/icons/it/WindowFrame';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Coins, Copy, Gauge, KeyRound, Layers, Menu, RefreshCw, Terminal, X, Brain, Cpu } from 'lucide-react';
+import { Bell, Check, Coins, Copy, Gauge, KeyRound, Layers, Menu, RefreshCw, Settings2, Terminal, X, Brain, Cpu } from 'lucide-react';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { VirtualMessage } from './components/VirtualMessage';
+import { randomComposerPlaceholder, randomDashboardHeroCopy } from './copy/fiPersonality';
 import {
   formatToolGroupLabel,
-  getToolDisplayLabel,
-  getToolGroupCount,
   groupChatToolSegments,
 } from './utils/toolTrace';
 import type { ToolTraceGroup } from './utils/toolTrace';
 
-const TerminalDialog = lazy(() =>
-  import('./components/dialogs/TerminalDialog').then((module) => ({ default: module.TerminalDialog }))
+const TerminalScreen = lazy(() =>
+  import('./components/terminal/TerminalScreen').then((module) => ({ default: module.TerminalScreen }))
 );
 
 const AppPinGate = ({ children }: { children: ReactNode }) => {
@@ -150,6 +156,8 @@ const getWeeklyCodexLimit = (usage: UsageData) => {
 };
 
 const reasoningOptions = ['auto', 'medium', 'high', 'low', 'none'];
+const activeSessionStorageKey = 'hermes_active_session_id';
+const pinnedSessionsStorageKey = 'fi_pinned_session_ids';
 
 const formatModelName = (model?: string) => {
   if (!model) return 'model';
@@ -167,6 +175,44 @@ const getContextPercent = (usage: Usage | null) => {
 };
 
 const clampPercent = (value: number | null) => Math.max(0, Math.min(100, value ?? 0));
+
+const getSessionSortTime = (session: StoredSession) => session.updated_at || session.started_at || 0;
+
+const readPinnedSessionIds = () => {
+  if (typeof window === 'undefined') return new Set<string>();
+  try {
+    const value = JSON.parse(window.localStorage.getItem(pinnedSessionsStorageKey) || '[]');
+    return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+};
+
+const writePinnedSessionIds = (ids: Set<string>) => {
+  window.localStorage.setItem(pinnedSessionsStorageKey, JSON.stringify([...ids]));
+};
+
+const sortSessionRows = (sessions: SessionRowModel[]) => {
+  return [...sessions].sort((a, b) => {
+    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+    if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+    if (a.running !== b.running) return a.running ? -1 : 1;
+    return getSessionSortTime(b) - getSessionSortTime(a);
+  });
+};
+
+const toSessionRows = (sessions: StoredSession[], lastOpenedSessionId: string | null): SessionRowModel[] => {
+  const pinnedSessionIds = readPinnedSessionIds();
+  return sortSessionRows(
+    sessions.map((session) => ({
+      ...session,
+      statusLabel: 'unknown',
+      isLastOpened: Boolean(lastOpenedSessionId && session.id === lastOpenedSessionId),
+      isPinned: pinnedSessionIds.has(session.id),
+      isActive: Boolean(lastOpenedSessionId && session.id === lastOpenedSessionId),
+    }))
+  );
+};
 
 const isMobileKeyboard = () => {
   if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
@@ -377,19 +423,39 @@ const chatEntrance = {
   transition: { duration: 0.34, ease: 'easeOut' },
 };
 
-const instantEntrance = {
-  initial: false,
-  animate: { opacity: 1 },
-  transition: { duration: 0 },
+const compactEntrance = {
+  initial: { opacity: 0, y: 4, filter: 'blur(6px)' },
+  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
+  transition: { duration: 0.2 },
 };
+
+const overlayPresence = () => ({
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+  transition: { duration: 0.16 },
+});
+
+const popoverPresence = (y = 8) => ({
+  initial: { opacity: 0, y, scale: 0.98, filter: 'blur(8px)' },
+  animate: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
+  exit: { opacity: 0, y, scale: 0.98, filter: 'blur(8px)' },
+  transition: { duration: 0.18 },
+});
+
+const menuItemPresence = (index: number) => ({
+  initial: { opacity: 0, y: -3 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.16, delay: 0.025 * index },
+});
 
 const CharacterEntranceText = memo(({ text, reduceMotion }: { text: string; reduceMotion: boolean }) => (
   <span aria-label={text} className="whitespace-pre-wrap break-words">
-    {reduceMotion ? text : Array.from(text).map((char, index) => (
+    {Array.from(text).map((char, index) => (
       <motion.span
         key={`${char}-${index}`}
         aria-hidden="true"
-        initial={{ opacity: 0, filter: 'blur(6px)' }}
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, filter: 'blur(6px)' }}
         animate={{ opacity: 1, filter: 'blur(0px)' }}
         transition={{ duration: 0.28, delay: Math.min(index * 0.008, 0.35), ease: 'easeOut' }}
       >
@@ -439,91 +505,95 @@ const ToolStatusText = memo(({ text, active, reduceMotion }: { text: string; act
 });
 ToolStatusText.displayName = 'ToolStatusText';
 
-const ToolRunDialog = ({ tools, onClose }: { tools: ToolActivity[]; onClose: () => void }) => (
-  <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 px-4 pb-4 backdrop-blur-xl sm:items-center" onClick={onClose}>
-    <motion.div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Tool call details"
-      initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      exit={{ opacity: 0, y: 12, filter: 'blur(8px)' }}
-      transition={{ duration: 0.22 }}
-      onClick={(event) => event.stopPropagation()}
-      className="max-h-[76vh] w-full max-w-xl overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950/95 shadow-2xl"
-    >
-      <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
-        <div className="min-w-0">
-          <div className="font-serif-hermes text-[17px] italic text-zinc-200">Work trace</div>
-          <div className="font-sans-hermes text-[11px] text-neutral-600">
-            {tools.length} call{tools.length === 1 ? '' : 's'} | {getToolGroupCount(tools)} group{getToolGroupCount(tools) === 1 ? '' : 's'}
-          </div>
-        </div>
-        <button type="button" onClick={onClose} className="rounded-full p-1 text-neutral-500 active:scale-95">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="max-h-[64vh] space-y-2 overflow-auto p-4">
-        {tools.map((tool, index) => (
-          <div key={tool.id} className="rounded-2xl bg-white/[0.025] p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2 text-neutral-300">
-                <Code className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
-                <div className="min-w-0">
-                  <div className="truncate font-sans-hermes text-[13px]">{getToolDisplayLabel(tool.tool)}</div>
-                  <div className="truncate font-mono text-[10px] text-neutral-700">{tool.tool}</div>
-                </div>
-              </div>
-              <span className={`shrink-0 font-mono text-[11px] ${
-                tool.status === 'failed' ? 'text-red-300/70' : tool.status === 'running' ? 'text-white/70' : 'text-neutral-600'
-              }`}>
-                {tool.status === 'running' ? 'running' : tool.status === 'failed' ? 'failed' : `${tool.duration?.toFixed(1) || 'done'}s`}
-              </span>
-            </div>
-            {tool.preview && (
-              <div className="mt-2 whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-neutral-500 [overflow-wrap:anywhere]">
-                {tool.preview}
-              </div>
-            )}
-            {!tool.preview && (
-              <div className="mt-2 font-serif-hermes text-[14px] italic text-neutral-600">
-                {tool.status === 'running' ? `Step ${index + 1} is still in motion.` : `Step ${index + 1} finished without extra output.`}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </motion.div>
-  </div>
+type ToolIconComponent = typeof Code;
+
+const getToolIconComponent = (tool?: string, preview?: string, fallback: ToolIconComponent = Code): ToolIconComponent => {
+  const text = `${tool || ''} ${preview || ''}`.toLowerCase();
+
+  if (!text.trim()) return fallback;
+  if (/apply_patch|patch|diff|write_file|edit|replace_symbol|insert_|delete_symbol/.test(text)) return PenNewSquare;
+  if (/read_file|read_mcp_resource|view_image|cat\s|sed\s+-n|nl\s|head\s|tail\s|document|filetext|open\(/.test(text)) return FileText;
+  if (/rg\s|grep|search|find_symbol|find_declaration|find_referencing|tool_search|query|magnif/.test(text)) return MinimalisticMagnifier;
+  if (/rg --files|list_dir|folder|directory|find\s|ls\s|resources|templates/.test(text)) return FolderOpen;
+  if (/web\.|browser|playwright|screenshot|click|navigate|goto|https?:\/\//.test(text)) return WindowFrame;
+  if (/terminal|exec_command|shell|command|bun\s|npm\s|git\s|pgrep|kill\s/.test(text)) return Command;
+  if (/database|memory|storage|localstorage|cache/.test(text)) return Database;
+
+  return fallback;
+};
+
+const formatToolPayload = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'string') return value;
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const getToolContextValue = (tool: ToolActivity) => (
+  tool.raw?.context
 );
 
+const ToolBranchItem = ({ value, last, pulse = false }: { value: unknown; last: boolean; pulse?: boolean }) => {
+  const text = formatToolPayload(value);
+  if (!text) return null;
 
+  return (
+    <div className={`grid grid-cols-[1rem_minmax(0,1fr)] gap-2 font-mono text-[12px] leading-relaxed text-neutral-500 ${pulse ? 'animate-pulse fi-motion-pulse' : ''}`}>
+      <span className="select-none text-neutral-700">{last ? '└' : '├'}</span>
+      <pre className="fi-scrollbar max-h-28 overflow-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{text}</pre>
+    </div>
+  );
+};
 
-const ToolSegmentLine = memo(({ group, tools, onOpen, className, reduceMotion }: {
+const ToolSegmentLine = memo(({ group, isOpen, autoOpen, onToggle, className }: {
   group: ToolTraceGroup;
-  tools: ToolActivity[]; 
-  onOpen: () => void;
+  isOpen: boolean;
+  autoOpen: boolean;
+  onToggle: () => void;
   className?: string;
-  reduceMotion: boolean;
 }) => {
   const active = group.status === 'running';
   const failed = group.status === 'failed';
+  const ToolIcon = getToolIconComponent(group.rawTool, group.tools[0]?.preview);
+  const contexts = group.tools
+    .map((tool) => getToolContextValue(tool))
+    .filter((value) => formatToolPayload(value));
+  const expandable = contexts.length > 0;
 
   return (
-    <motion.button
-      type="button"
-      onClick={onOpen}
-      {...(reduceMotion ? instantEntrance : {
-        initial: { opacity: 0, y: 4, filter: 'blur(6px)' },
-        animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-        transition: { duration: 0.2 },
-      })}
-      className={`hover:text-neutral-300 font-serif-hermes text-[15px] italic text-neutral-400 cursor-pointer flex items-center gap-2 outline-none select-none active:scale-[0.99] text-left ${failed ? 'text-red-300/70' : ''} ${active ? '' : 'opacity-70'} ${className || ''}`}
-      aria-label={`Open work trace with ${tools.length} tool calls`}
+    <motion.div
+      {...compactEntrance}
+      className={`w-full ${className || ''}`}
     >
-      <Code className={`w-3.5 h-3.5 text-neutral-500 shrink-0 ${active ? 'animate-pulse fi-motion-pulse' : ''}`} />
-      <ToolStatusText text={formatToolGroupLabel(group)} active={active} reduceMotion={false} />
-    </motion.button>
+      <button
+        type="button"
+        onClick={expandable ? onToggle : undefined}
+        disabled={!expandable}
+        className={`font-serif-hermes text-[15px] italic leading-none text-neutral-400 flex min-h-6 items-center gap-2 outline-none select-none text-left ${expandable ? 'cursor-pointer hover:text-neutral-300 active:scale-[0.99]' : 'cursor-default'} ${failed ? 'text-red-300/70' : ''} ${active ? '' : 'opacity-70'}`}
+        aria-expanded={expandable ? isOpen : undefined}
+        aria-label={`Toggle work trace for ${group.tools.length} tool calls`}
+      >
+        <ToolIcon className={`w-3.5 h-3.5 text-neutral-500 shrink-0 ${active ? 'animate-pulse fi-motion-pulse' : ''}`} />
+        <ToolStatusText text={formatToolGroupLabel(group)} active={active} reduceMotion={false} />
+      </button>
+
+      {expandable && isOpen && (
+        <div className="ml-5 mt-1.5 space-y-1 pl-3">
+          {contexts.map((context, index) => (
+              <ToolBranchItem
+                key={`${group.id}-${index}`}
+                value={context}
+                last={index === contexts.length - 1}
+                pulse={autoOpen && index === contexts.length - 1}
+              />
+          ))}
+        </div>
+      )}
+    </motion.div>
   );
 });
 ToolSegmentLine.displayName = 'ToolSegmentLine';
@@ -576,11 +646,7 @@ const FiPendingIndicator = memo(({ reduceMotion }: { reduceMotion: boolean }) =>
 
   return (
     <motion.div
-      {...(reduceMotion ? instantEntrance : {
-        initial: { opacity: 0, y: 4, filter: 'blur(4px)' },
-        animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-        transition: { duration: 0.2 },
-      })}
+      {...compactEntrance}
       className="flex items-center gap-3 pt-2 select-none font-serif-hermes text-[15px] italic text-neutral-400"
     >
       <span className={`font-mono text-[17px] text-white/70 h-5 ${widthClass} flex items-center justify-center animate-pulse fi-motion-pulse`}>
@@ -592,14 +658,24 @@ const FiPendingIndicator = memo(({ reduceMotion }: { reduceMotion: boolean }) =>
 });
 FiPendingIndicator.displayName = 'FiPendingIndicator';
 
-const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, onOpenTools, reduceMotion }: {
+const AssistantSegments = memo(({ segments, fallbackContent, isRunning, reduceMotion }: {
   segments: ChatSegment[];
-  tools: ToolActivity[];
   fallbackContent: string;
   isRunning: boolean;
-  onOpenTools: () => void;
   reduceMotion: boolean;
 }) => {
+  const groupedSegments = groupChatToolSegments(segments);
+  const latestRunningToolId = [...groupedSegments]
+    .reverse()
+    .find((segment) => segment.type === 'tool-group' && segment.status === 'running')?.id ?? null;
+  const [expandedToolGroupId, setExpandedToolGroupId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (latestRunningToolId || !isRunning) {
+      setExpandedToolGroupId(null);
+    }
+  }, [latestRunningToolId, isRunning]);
+
   if (!segments.length && fallbackContent) {
     return <MarkdownMessage content={fallbackContent} reduceMotion={reduceMotion} />;
   }
@@ -610,8 +686,6 @@ const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, o
     );
   }
 
-  const groupedSegments = groupChatToolSegments(segments);
-
   return (
     <div className="w-full min-w-0 flex flex-col items-start break-words [overflow-wrap:anywhere]">
       {groupedSegments.map((segment, index) => {
@@ -619,14 +693,9 @@ const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, o
         const prevSegment = index > 0 ? groupedSegments[index - 1] : null;
         const prevIsText = prevSegment?.type === 'text';
 
-        // Determine spacing class
         let spacingClass = '';
         if (index > 0) {
-          if (isText || prevIsText) {
-            spacingClass = 'mt-5';
-          } else {
-            spacingClass = 'mt-2';
-          }
+          spacingClass = isText && prevIsText ? 'mt-3' : 'mt-1.5';
         }
 
         const isThinkingActive = isRunning && index === groupedSegments.length - 1;
@@ -636,17 +705,24 @@ const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, o
             <MarkdownMessage content={segment.content} reduceMotion={reduceMotion} />
           </div>
         ) : segment.type === 'thinking' ? (
-          <details key={segment.id} className={`w-full select-none space-y-1 ${spacingClass}`}>
-            <summary className="hover:text-neutral-300 font-serif-hermes text-[15px] italic text-neutral-400 cursor-pointer flex items-center gap-2 outline-none list-none [&::-webkit-details-marker]:hidden">
+          <details key={segment.id} className={`w-full select-none ${spacingClass}`}>
+            <summary className="hover:text-neutral-300 font-serif-hermes text-[15px] italic leading-none text-neutral-400 cursor-pointer flex min-h-6 items-center gap-2 outline-none list-none [&::-webkit-details-marker]:hidden">
               <Brain className={`w-3.5 h-3.5 text-neutral-500 shrink-0 ${isThinkingActive && !reduceMotion ? 'animate-pulse' : ''}`} />
               <ToolStatusText text={isThinkingActive ? "Thinking process" : "Reasoning"} active={isThinkingActive} reduceMotion={reduceMotion} />
             </summary>
-            <div className="pt-2 text-neutral-500 font-serif-hermes text-[15px] italic leading-relaxed pl-6 border-l border-neutral-800">
+            <div className="pt-1.5 text-neutral-500 font-serif-hermes text-[15px] italic leading-relaxed pl-6 border-l border-neutral-800">
               <MarkdownMessage content={segment.content} reduceMotion={reduceMotion} />
             </div>
           </details>
         ) : segment.type === 'tool-group' ? (
-          <ToolSegmentLine key={segment.id} group={segment} tools={tools} onOpen={onOpenTools} className={spacingClass} reduceMotion={reduceMotion} />
+          <ToolSegmentLine
+            key={segment.id}
+            group={segment}
+            isOpen={latestRunningToolId === segment.id || expandedToolGroupId === segment.id}
+            autoOpen={latestRunningToolId === segment.id}
+            onToggle={() => setExpandedToolGroupId((current) => current === segment.id ? null : segment.id)}
+            className={spacingClass}
+          />
         ) : null;
       })}
     </div>
@@ -654,14 +730,14 @@ const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, o
 });
 AssistantSegments.displayName = 'AssistantSegments';
 
-const ChatMessageItem = memo(({ msg, onOpenTools, reduceMotion }: { msg: ChatMessage; onOpenTools: (tools: ToolActivity[]) => void; reduceMotion: boolean }) => {
+const ChatMessageItem = memo(({ msg, reduceMotion }: { msg: ChatMessage; reduceMotion: boolean }) => {
   if (msg.role === 'user') {
     return (
       <motion.div 
-        {...(reduceMotion ? instantEntrance : chatEntrance)}
-        className="flex justify-end"
+        {...chatEntrance}
+        className="flex w-full min-w-0 justify-end"
       >
-        <div className="max-w-[86%] text-right font-sans-hermes text-[15px] font-light text-neutral-300 whitespace-pre-wrap break-words leading-relaxed">
+        <div className="w-fit max-w-[82%] min-w-0 whitespace-pre-wrap break-words text-left font-serif-hermes text-[17px] font-light leading-relaxed text-neutral-400 [overflow-wrap:anywhere] sm:max-w-[75%]">
           <CharacterEntranceText text={msg.content} reduceMotion={reduceMotion} />
         </div>
       </motion.div>
@@ -674,17 +750,15 @@ const ChatMessageItem = memo(({ msg, onOpenTools, reduceMotion }: { msg: ChatMes
 
   return (
     <motion.div 
-      {...(reduceMotion ? instantEntrance : chatEntrance)}
+      {...chatEntrance}
       className="flex w-full min-w-0 flex-col items-start space-y-4"
     >
       {msg.segments.length || msg.content || msg.status === 'running' ? (
-        <div className="w-full min-w-0 font-serif-hermes text-[17px] leading-relaxed text-zinc-200 break-words [overflow-wrap:anywhere]">
+        <div className="fi-selectable w-full min-w-0 select-text font-serif-hermes text-[17px] leading-relaxed text-zinc-200 break-words [overflow-wrap:anywhere]">
           <AssistantSegments
             segments={msg.segments}
-            tools={msg.tools}
             fallbackContent={msg.content}
             isRunning={msg.status === 'running'}
-            onOpenTools={() => onOpenTools(msg.tools)}
             reduceMotion={reduceMotion}
           />
         </div>
@@ -708,7 +782,7 @@ const NotificationsDialog = ({ message, error, onEnable, onClose }: {
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 px-4 pb-4 backdrop-blur-xl sm:items-center" onClick={onClose}>
-      <motion.div role="dialog" aria-modal="true" aria-label="Notifications" initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} exit={{ opacity: 0, y: 12, filter: 'blur(8px)' }} transition={{ duration: 0.22 }} onClick={(event) => event.stopPropagation()} className="w-full max-w-xl overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950/95 shadow-2xl">
+      <motion.div role="dialog" aria-modal="true" aria-label="Notifications" {...popoverPresence(18)} onClick={(event) => event.stopPropagation()} className="w-full max-w-xl overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950/95 shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
           <div>
             <div className="font-serif-hermes text-[18px] italic text-zinc-200">Notifications</div>
@@ -740,7 +814,7 @@ const AppearanceDialog = ({ settings, onChange, onClose }: {
   onChange: (settings: AppearanceSettings) => void;
   onClose: () => void;
 }) => {
-  const lessAnimation = settings.motionMode === 'less';
+  const performantMode = settings.motionMode === 'less';
   const terminalFont = settings.fontMode === 'terminal';
 
   return (
@@ -749,10 +823,7 @@ const AppearanceDialog = ({ settings, onChange, onClose }: {
         role="dialog"
         aria-modal="true"
         aria-label="Appearance settings"
-        initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }}
-        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-        exit={{ opacity: 0, y: 12, filter: 'blur(8px)' }}
-        transition={{ duration: 0.18 }}
+        {...popoverPresence(18)}
         onClick={(event) => event.stopPropagation()}
         className="w-full max-w-xl overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950/95 shadow-2xl"
       >
@@ -769,21 +840,21 @@ const AppearanceDialog = ({ settings, onChange, onClose }: {
         <div className="space-y-3 p-4">
           <button
             type="button"
-            onClick={() => onChange({ ...settings, motionMode: lessAnimation ? 'full' : 'less' })}
+            onClick={() => onChange({ ...settings, motionMode: performantMode ? 'full' : 'less' })}
             className={`flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left ${
-              lessAnimation ? 'border-white/20 bg-white/[0.06]' : 'border-white/[0.06] bg-white/[0.025]'
+              performantMode ? 'border-white/20 bg-white/[0.06]' : 'border-white/[0.06] bg-white/[0.025]'
             }`}
           >
             <span className="flex min-w-0 gap-3">
               <Gauge className="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
               <span className="min-w-0">
-                <span className="block font-sans-hermes text-[13px] font-medium text-zinc-200">Less Animation</span>
+                <span className="block font-sans-hermes text-[13px] font-medium text-zinc-200">Performant</span>
                 <span className="mt-1 block font-sans-hermes text-[12px] leading-relaxed text-neutral-500">
-                  Removes blur and heavy chat transitions while keeping tool-call pulse, spinner, and status message motion.
+                  Removes blur-heavy effects while keeping snappy chat, status, and control animations.
                 </span>
               </span>
             </span>
-            {lessAnimation && <Check className="h-4 w-4 shrink-0 text-white" />}
+            {performantMode && <Check className="h-4 w-4 shrink-0 text-white" />}
           </button>
 
           <div className="grid grid-cols-2 gap-2">
@@ -831,7 +902,7 @@ function AppShell() {
     sendMessage,
     executeSlashCommand,
     stopActiveRun,
-    clearChat,
+    startBlankDraft,
     connectionStatus,
     statusLine,
     blockingRequests,
@@ -840,6 +911,8 @@ function AppShell() {
     sessionInfo,
   } = useHermes();
   const [inputValue, setInputValue] = useState('');
+  const [composerPlaceholder, setComposerPlaceholder] = useState(() => randomComposerPlaceholder());
+  const [emptyThreadHeroCopy] = useState(() => randomDashboardHeroCopy());
   const [selectedModel, setSelectedModel] = useState('deepseek-v4-flash');
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [footerPicker, setFooterPicker] = useState<'model' | 'reasoning' | null>(null);
@@ -847,16 +920,16 @@ function AppShell() {
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [sessionUsage, setSessionUsage] = useState<Usage | null>(null);
   const [reasoningLevel, setReasoningLevel] = useState<string>('auto');
-  const [toolDialogTools, setToolDialogTools] = useState<ToolActivity[] | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
   const [isControlCenterOpen, setIsControlCenterOpen] = useState(false);
-  const [sessions, setSessions] = useState<StoredSession[]>([]);
+  const [sessions, setSessions] = useState<SessionRowModel[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isAppearanceOpen, setIsAppearanceOpen] = useState(false);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [isTerminalMode, setIsTerminalMode] = useState(false);
+  const [hasOpenedTerminal, setHasOpenedTerminal] = useState(false);
   const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(readAppearanceSettings);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
@@ -883,8 +956,10 @@ function AppShell() {
   const isSlashPrompt = Boolean(slashToken);
   const contextCompletionToken = isSlashPrompt ? null : getContextCompletionToken(inputValue, composerCursor);
   const isContextCompletionPrompt = Boolean(contextCompletionToken);
-  const reduceMotion = appearanceSettings.motionMode === 'less';
+  const performantMode = appearanceSettings.motionMode === 'less';
+  const reduceMotion = performantMode;
   const terminalFont = appearanceSettings.fontMode === 'terminal';
+  const showingStartDashboard = messages.length === 0 && !currentThreadId && statusLine !== "Resuming session...";
 
   useEffect(() => {
     window.localStorage.setItem(appearanceStorageKey, JSON.stringify(appearanceSettings));
@@ -951,9 +1026,9 @@ function AppShell() {
   // Auto-scroll to bottom of chat
   useEffect(() => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop = showingStartDashboard ? 0 : chatContainerRef.current.scrollHeight;
     }
-  }, [messages, isRunning]);
+  }, [messages, isRunning, showingStartDashboard]);
 
 
   // Locked Visual Viewport controller to scale height and block iOS scroll-shifting
@@ -1184,6 +1259,7 @@ function AppShell() {
       sendMessage(inputValue, selectedModel);
     }
     setInputValue('');
+    setComposerPlaceholder(randomComposerPlaceholder());
     setFooterPicker(null);
     setIsPromptExpanded(false); // Collapse after sending
   };
@@ -1249,23 +1325,83 @@ function AppShell() {
     handleSend();
   };
 
-  const refreshSessions = async () => {
+  const refreshSessions = useCallback(async () => {
     setSessionsLoading(true);
     setSessionsError(null);
     try {
+      const savedSessionId = window.localStorage.getItem(activeSessionStorageKey);
       const res = await HermesGateway.listSessions();
-      setSessions(res.sessions || []);
+      const rows = toSessionRows(res.sessions || [], savedSessionId);
+      setSessions(rows);
+
+      const statusRows = rows;
+      const statusResults = await Promise.all(statusRows.map(async (session) => {
+        try {
+          const status = await HermesGateway.getStatus(session.id);
+          const active = Boolean((status as any)?.active || (status as any)?.current || (status as any)?.attached);
+          return {
+            id: session.id,
+            running: Boolean(status?.running),
+            isActive: active || session.isActive,
+            statusLabel: status?.running ? 'running' as const : 'idle' as const,
+            statusError: undefined,
+          };
+        } catch (e) {
+          return {
+            id: session.id,
+            running: false,
+            statusLabel: 'unknown' as const,
+            statusError: e instanceof Error ? e.message : 'Failed to load status',
+          };
+        }
+      }));
+      setSessions((current) => sortSessionRows(current.map((session) => {
+        const status = statusResults.find((candidate) => candidate.id === session.id);
+        return status ? { ...session, ...status } : session;
+      })));
     } catch (e) {
       setSessionsError(e instanceof Error ? e.message : 'Failed to load sessions');
     } finally {
       setSessionsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return;
+    void refreshSessions();
+  }, [connectionStatus, refreshSessions]);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible' && connectionStatus === 'connected') {
+        void refreshSessions();
+      }
+    };
+
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => {
+      window.removeEventListener('focus', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [connectionStatus, refreshSessions]);
 
   const openSessions = () => {
     setIsMenuOpen(false);
     setIsSessionsOpen(true);
     void refreshSessions();
+  };
+
+  const handleStartBlankDraft = () => {
+    startBlankDraft();
+    setInputValue('');
+    setSessionUsage(null);
+    setIsMenuOpen(false);
+    setFooterPicker(null);
+    setIsPromptExpanded(false);
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = 0;
+    }
   };
 
   const openNotifications = () => {
@@ -1291,9 +1427,11 @@ function AppShell() {
   };
 
   const openTerminal = () => {
+    setIsMenuOpen(false);
     setFooterPicker(null);
     setIsPromptExpanded(false);
-    setIsTerminalOpen(true);
+    setHasOpenedTerminal(true);
+    setIsTerminalMode(true);
   };
 
   const handleEnableNotifications = async () => {
@@ -1311,19 +1449,51 @@ function AppShell() {
     setIsSessionsOpen(false);
     try {
       await resumeSession(sessionId);
+      void refreshSessions();
     } catch (e) {
       setSessionsError(e instanceof Error ? e.message : 'Failed to connect session');
     }
   };
 
   const handleDeleteSession = async (sessionId: string) => {
+    const session = sessions.find((candidate) => candidate.id === sessionId);
+    if (session?.isActive || currentThreadId === sessionId) {
+      setSessionsError('Cannot delete the active session. Open New or another session first.');
+      setSessions((current) => sortSessionRows(current.map((candidate) => (
+        candidate.id === sessionId ? { ...candidate, isActive: true } : candidate
+      ))));
+      return;
+    }
     if (!confirm('Are you sure you want to delete this session?')) return;
     try {
       await HermesGateway.deleteSession(sessionId);
+      const pinnedSessionIds = readPinnedSessionIds();
+      if (pinnedSessionIds.delete(sessionId)) {
+        writePinnedSessionIds(pinnedSessionIds);
+      }
       void refreshSessions();
     } catch (e) {
-      setSessionsError(e instanceof Error ? e.message : 'Failed to delete session');
+      const message = e instanceof Error ? e.message : 'Failed to delete session';
+      if (message.toLowerCase().includes('active')) {
+        setSessions((current) => sortSessionRows(current.map((candidate) => (
+          candidate.id === sessionId ? { ...candidate, isActive: true } : candidate
+        ))));
+      }
+      setSessionsError(message);
     }
+  };
+
+  const handleTogglePinSession = (sessionId: string) => {
+    const pinnedSessionIds = readPinnedSessionIds();
+    if (pinnedSessionIds.has(sessionId)) {
+      pinnedSessionIds.delete(sessionId);
+    } else {
+      pinnedSessionIds.add(sessionId);
+    }
+    writePinnedSessionIds(pinnedSessionIds);
+    setSessions((current) => sortSessionRows(current.map((session) => (
+      session.id === sessionId ? { ...session, isPinned: pinnedSessionIds.has(sessionId) } : session
+    ))));
   };
 
   const handleBranchSession = async (sessionId: string) => {
@@ -1331,6 +1501,7 @@ function AppShell() {
       const res = await HermesGateway.branchSession(sessionId);
       setIsSessionsOpen(false);
       await resumeSession(res.session_id);
+      void refreshSessions();
     } catch (e) {
       setSessionsError(e instanceof Error ? e.message : 'Failed to branch session');
     }
@@ -1368,19 +1539,34 @@ function AppShell() {
   );
   const contextPercent = getContextPercent(sessionUsage);
   const contextRingPercent = clampPercent(contextPercent);
+  const menuItems = [
+    { label: 'New', icon: PenNewSquare, action: handleStartBlankDraft },
+    { label: 'Sessions', icon: Layers, action: openSessions },
+    { label: 'Controls', icon: Settings2, action: openControlCenter },
+    { label: 'Notifications', icon: Bell, action: openNotifications },
+    { label: 'Appearance', icon: Gauge, action: openAppearance },
+    { label: 'Terminal', icon: Terminal, action: openTerminal },
+    {
+      label: pwaUpdate.updateAvailable ? 'Update' : pwaUpdate.checking ? 'Checking' : 'Check update',
+      icon: RefreshCw,
+      action: pwaUpdate.updateAvailable ? () => void applyPwaUpdate() : handleCheckForUpdate,
+      active: pwaUpdate.updateAvailable,
+      spin: pwaUpdate.checking,
+    },
+  ];
 
   return (
     <div
       data-motion-mode={appearanceSettings.motionMode}
       data-font-mode={appearanceSettings.fontMode}
-      className={`flex flex-col h-full bg-black text-white safe-pt select-none overflow-hidden relative font-sans-hermes ${reduceMotion ? 'fi-less-motion' : ''} ${terminalFont ? 'fi-terminal' : ''}`}
+      className={`flex flex-col h-full bg-black text-white safe-pt select-none overflow-hidden relative font-sans-hermes ${performantMode ? 'fi-performant-mode' : ''} ${terminalFont ? 'fi-terminal' : ''}`}
     >
       
       {/* Ultra-Minimalist Void Header */}
       <header className="w-full shrink-0 z-40 relative px-6 py-4 flex items-center justify-between border-b border-white/[0.015]">
         <div className="flex min-w-0 items-baseline gap-4">
           <span 
-            onClick={clearChat}
+            onClick={handleStartBlankDraft}
             className="font-serif-hermes text-[27px] font-bold tracking-tight text-white select-none cursor-pointer active:opacity-75 transition-opacity flex items-center gap-2"
           >
             Fi
@@ -1408,52 +1594,37 @@ function AppShell() {
 
           <AnimatePresence>
             {isMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -4, filter: 'blur(6px)' }}
-                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                exit={{ opacity: 0, y: -4, filter: 'blur(6px)' }}
-                transition={{ duration: 0.16 }}
-                className="absolute right-0 top-11 z-50 w-40 rounded-2xl border border-white/[0.06] bg-neutral-950/95 p-2 shadow-2xl backdrop-blur-xl"
-              >
-                <button
+              <>
+                <motion.button
                   type="button"
-                  onClick={openSessions}
-                  className="w-full rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider text-neutral-400 active:bg-white/[0.04]"
+                  aria-label="Close menu"
+                  {...overlayPresence()}
+                  onClick={() => setIsMenuOpen(false)}
+                  className="fixed inset-0 z-40 cursor-default bg-black/25 backdrop-blur-sm"
+                />
+                <motion.div
+                  {...popoverPresence(-4)}
+                  className={`absolute right-0 top-11 z-50 w-56 rounded-2xl border border-white/[0.08] bg-black/95 p-2 shadow-2xl backdrop-blur-2xl ${terminalFont ? 'font-mono' : 'font-sans-hermes'}`}
                 >
-                  Sessions
-                </button>
-                <button
-                  type="button"
-                  onClick={openControlCenter}
-                  className="w-full rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider text-neutral-400 active:bg-white/[0.04]"
-                >
-                  Controls
-                </button>
-                <button
-                  type="button"
-                  onClick={openNotifications}
-                  className="w-full rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider text-neutral-400 active:bg-white/[0.04]"
-                >
-                  Notifications
-                </button>
-                <button
-                  type="button"
-                  onClick={openAppearance}
-                  className="w-full rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider text-neutral-400 active:bg-white/[0.04]"
-                >
-                  Appearance
-                </button>
-                <button
-                  type="button"
-                  onClick={pwaUpdate.updateAvailable ? () => void applyPwaUpdate() : handleCheckForUpdate}
-                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider active:bg-white/[0.04] ${
-                    pwaUpdate.updateAvailable ? 'text-zinc-100' : 'text-neutral-400'
-                  }`}
-                >
-                  <span>{pwaUpdate.updateAvailable ? 'Update' : pwaUpdate.checking ? 'Checking' : 'Check update'}</span>
-                  <RefreshCw className={`h-3.5 w-3.5 ${pwaUpdate.checking ? 'animate-spin' : ''}`} />
-                </button>
-              </motion.div>
+                  {menuItems.map((item, index) => {
+                    const Icon = item.icon;
+                    return (
+                      <motion.button
+                        key={item.label}
+                        type="button"
+                        {...menuItemPresence(index)}
+                        onClick={item.action}
+                        className={`flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-[12px] uppercase tracking-wider active:bg-white/[0.06] ${
+                          item.active ? 'text-zinc-100' : 'text-neutral-400'
+                        }`}
+                      >
+                        <Icon className={`h-4 w-4 shrink-0 text-neutral-600 ${item.spin ? 'animate-spin' : ''}`} />
+                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      </motion.button>
+                    );
+                  })}
+                </motion.div>
+              </>
             )}
           </AnimatePresence>
         </div>
@@ -1462,7 +1633,7 @@ function AppShell() {
       {/* Spacious chat Timeline viewport - Dimmed and Blurred when prompt is expanded */}
       <main 
         ref={chatContainerRef}
-        className="flex-1 ios-scrollable px-6 py-4 space-y-8 z-10 relative no-scrollbar"
+        className={`flex-1 px-6 py-4 space-y-8 z-10 relative no-scrollbar ${showingStartDashboard ? 'overflow-hidden' : 'ios-scrollable'}`}
       >
         <div className="max-w-xl mx-auto space-y-8">
           
@@ -1481,6 +1652,17 @@ function AppShell() {
                   Measuring aura levels and calibrating thread parameters...
                 </p>
               </motion.div>
+            ) : !currentThreadId ? (
+              <StartDashboard
+                sessions={sessions}
+                currentThreadId={currentThreadId}
+                loading={sessionsLoading}
+                error={sessionsError}
+                onOpenSession={handleConnectSession}
+                onTogglePinSession={handleTogglePinSession}
+                onDeleteSession={handleDeleteSession}
+                onRefresh={refreshSessions}
+              />
             ) : (
               <motion.div 
                 initial={{ opacity: 0 }}
@@ -1488,10 +1670,10 @@ function AppShell() {
                 className="py-24 space-y-5 select-none text-center"
               >
                 <h2 className="font-serif-hermes text-[26px] font-light leading-snug text-neutral-300 tracking-wide max-w-xs mx-auto">
-                  What shall we execute today?
+                  {emptyThreadHeroCopy.title}
                 </h2>
                 <p className="font-serif-hermes text-[14px] italic leading-relaxed text-neutral-500 max-w-[190px] mx-auto">
-                  An ethereal gateway to your Hermetic remote VPS server agent.
+                  {emptyThreadHeroCopy.subtitle}
                 </p>
               </motion.div>
             )
@@ -1502,7 +1684,7 @@ function AppShell() {
             <AnimatePresence initial={false}>
               {messages.map((msg, index) => {
                 const shouldVirtualize = index < messages.length - 6 && msg.status !== 'running';
-                const body = <ChatMessageItem msg={msg} onOpenTools={setToolDialogTools} reduceMotion={reduceMotion} />;
+                const body = <ChatMessageItem msg={msg} reduceMotion={reduceMotion} />;
 
                 return shouldVirtualize ? (
                   <VirtualMessage key={msg.id} rootRef={chatContainerRef} estimate={msg.role === 'user' ? 64 : 180}>
@@ -1531,10 +1713,7 @@ function AppShell() {
       <AnimatePresence>
         {(pwaUpdate.updateAvailable || pwaUpdate.message) && (
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0.18 }}
+            {...popoverPresence(12)}
             className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[70] mx-auto flex max-w-xl items-center justify-between gap-3 rounded-2xl border border-white/[0.08] bg-neutral-950/95 px-4 py-3 shadow-2xl backdrop-blur-xl"
           >
             <div className="min-w-0">
@@ -1595,12 +1774,6 @@ function AppShell() {
       )}
 
       <AnimatePresence>
-        {toolDialogTools && (
-          <ToolRunDialog tools={toolDialogTools} onClose={() => setToolDialogTools(null)} />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
         {isSessionsOpen && (
           <SessionsDialog
             sessions={sessions}
@@ -1613,6 +1786,7 @@ function AppShell() {
             onDeleteSession={handleDeleteSession}
             onBranchSession={handleBranchSession}
             onRenameSession={handleRenameSession}
+            onTogglePinSession={handleTogglePinSession}
           />
         )}
       </AnimatePresence>
@@ -1622,6 +1796,7 @@ function AppShell() {
           <ControlCenterDialog
             sessionId={currentThreadId}
             onClose={() => setIsControlCenterOpen(false)}
+            reduceMotion={reduceMotion}
           />
         )}
       </AnimatePresence>
@@ -1631,6 +1806,7 @@ function AppShell() {
           <BlockingPromptsDialog
             request={blockingRequests[0]}
             onResolve={resolveBlockingRequest}
+            reduceMotion={reduceMotion}
           />
         )}
       </AnimatePresence>
@@ -1656,23 +1832,18 @@ function AppShell() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {isTerminalOpen && (
-          <Suspense fallback={null}>
-            <TerminalDialog onClose={() => setIsTerminalOpen(false)} />
-          </Suspense>
-        )}
-      </AnimatePresence>
+      {hasOpenedTerminal && (
+        <Suspense fallback={null}>
+          <TerminalScreen active={isTerminalMode} onBack={() => setIsTerminalMode(false)} />
+        </Suspense>
+      )}
 
       <AnimatePresence>
         {footerPicker && isPromptExpanded && (
           <div className="fixed inset-0 z-[60] flex items-end justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+5.75rem)]">
             <motion.div
               aria-hidden="true"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.14 }}
+              {...overlayPresence()}
               onClick={() => setFooterPicker(null)}
               className="absolute inset-0 bg-black/45 backdrop-blur-sm"
             />
@@ -1680,10 +1851,7 @@ function AppShell() {
               role="dialog"
               aria-modal="true"
               aria-label={footerPicker === 'model' ? 'Select model' : 'Select reasoning'}
-              initial={{ opacity: 0, y: 12, scale: 0.98, filter: 'blur(8px)' }}
-              animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
-              exit={{ opacity: 0, y: 8, scale: 0.98, filter: 'blur(8px)' }}
-              transition={{ duration: 0.16 }}
+              {...popoverPresence(12)}
               className="relative w-full max-w-xl overflow-hidden rounded-[22px] border border-white/[0.07] bg-neutral-950/95 p-2 shadow-2xl"
             >
               {footerPicker === 'model' ? (
@@ -1864,7 +2032,7 @@ function AppShell() {
                 onKeyUp={(e) => setComposerCursor(e.currentTarget.selectionStart)}
                 onClick={(e) => setComposerCursor(e.currentTarget.selectionStart)}
                 onSelect={(e) => setComposerCursor(e.currentTarget.selectionStart)}
-                placeholder="Ask Fi..."
+                placeholder={composerPlaceholder}
                 wrap="soft"
                 className="w-full bg-transparent border-none outline-none text-[15px] font-light text-white placeholder-neutral-500 resize-none font-sans-hermes no-scrollbar min-h-[26px] max-h-32 pr-2 leading-relaxed caret-white select-text overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words"
                 style={{ height: '26px', userSelect: 'text', WebkitUserSelect: 'text', caretColor: '#fff', overflowWrap: 'break-word', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}
@@ -1902,15 +2070,6 @@ function AppShell() {
                     </span>
                     <span className="text-neutral-400">{contextPercent ?? 0}%</span>
                   </span>
-                  <button
-                    type="button"
-                    onClick={openTerminal}
-                    className="flex min-h-7 items-center gap-1.5 rounded-lg pr-1 text-neutral-400 active:scale-[0.98]"
-                    title="Terminal"
-                    aria-label="Open terminal"
-                  >
-                    <Terminal className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
-                  </button>
                 </div>
                 
                 {/* Circular Action Button */}

@@ -8,9 +8,10 @@ interface BlockingPromptsDialogProps {
     payload: any;
   };
   onResolve: (type: 'approval' | 'clarify' | 'sudo' | 'secret', value: string, all?: boolean) => void;
+  reduceMotion?: boolean;
 }
 
-export const BlockingPromptsDialog = ({ request, onResolve }: BlockingPromptsDialogProps) => {
+export const BlockingPromptsDialog = ({ request, onResolve, reduceMotion = false }: BlockingPromptsDialogProps) => {
   const [inputValue, setInputValue] = useState('');
   const [approveAll, setApproveAll] = useState(false);
   const { type, payload } = request;
@@ -275,9 +276,9 @@ export const BlockingPromptsDialog = ({ request, onResolve }: BlockingPromptsDia
       <motion.div
         role="dialog"
         aria-modal="true"
-        initial={{ opacity: 0, scale: 0.96, filter: 'blur(6px)' }}
+        initial={{ opacity: 0, scale: 0.96, filter: reduceMotion ? 'blur(0px)' : 'blur(6px)' }}
         animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-        exit={{ opacity: 0, scale: 0.96, filter: 'blur(6px)' }}
+        exit={{ opacity: 0, scale: 0.96, filter: reduceMotion ? 'blur(0px)' : 'blur(6px)' }}
         transition={{ duration: 0.2 }}
         className="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950 p-6 shadow-2xl"
       >

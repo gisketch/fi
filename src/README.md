@@ -15,4 +15,4 @@ Current stack: Vite SPA with React 18, TypeScript, TailwindCSS v4, Framer Motion
 
 Primary chat path: `App.tsx` -> `useHermes` -> `HermesGateway` -> `hermesTransport`.
 
-Terminal path: `App.tsx` -> lazy `TerminalDialog` -> `terminalGateway` -> separate terminal gateway WebSocket.
+Terminal path: `App.tsx` -> lazy persistent `TerminalScreen` -> `terminalGateway` -> separate terminal gateway WebSocket.

@@ -6,6 +6,9 @@ import { hermesTransport } from '../services/hermesTransport';
 export interface ToolActivity {
   id: string;
   tool: string;
+  input?: unknown;
+  output?: unknown;
+  raw?: Record<string, unknown>;
   preview?: string;
   duration?: number;
   status: 'running' | 'completed' | 'failed';
@@ -44,14 +47,17 @@ export function useHermes() {
     activeSessionIdRef.current = state.activeSessionId;
     if (state.activeSessionId) {
       localStorage.setItem('hermes_active_session_id', state.activeSessionId);
-    } else {
-      localStorage.removeItem('hermes_active_session_id');
     }
   }, [state.activeSessionId]);
 
   // Hook up event subscriber
   useEffect(() => {
     const unsub = HermesGateway.onEvent((event) => {
+      const eventSessionId = event.session_id || event.payload?.session_id;
+      const activeSessionId = activeSessionIdRef.current;
+      if (eventSessionId && eventSessionId !== activeSessionId) {
+        return;
+      }
       // Direct WS events are routed to our reducer
       dispatch(event);
     });
@@ -66,12 +72,6 @@ export function useHermes() {
       console.error('Failed to auto-connect Hermes WS:', err);
     });
 
-    // Try to restore previous session from localStorage
-    const savedSessionId = localStorage.getItem('hermes_active_session_id');
-    if (savedSessionId) {
-      void resumeSession(savedSessionId).catch(() => undefined);
-    }
-
     return () => {
       unsub();
     };
@@ -79,14 +79,26 @@ export function useHermes() {
 
   const resumeSession = useCallback(async (sessionId: string) => {
     // Optimistically transition to loading state instantly
+    const previousSessionId = activeSessionIdRef.current;
+    activeSessionIdRef.current = sessionId;
     dispatch({ type: 'session.resume_start', payload: { sessionId } });
 
     try {
       const res = await HermesGateway.resumeSession(sessionId);
       const activeSessionId = res.session_id || res.resumed || sessionId;
+      activeSessionIdRef.current = activeSessionId;
+      localStorage.setItem('hermes_active_session_id', activeSessionId);
       
       // Convert history messages
       const historyMessages = messagesFromHistory(res.messages || [], activeSessionId);
+
+      let running = false;
+      try {
+        const status = await HermesGateway.getStatus(activeSessionId);
+        running = Boolean(status?.running);
+      } catch (statusErr) {
+        console.warn('Failed to fetch session status:', statusErr);
+      }
       
       // Sync to local state purely
       dispatch({
@@ -95,6 +107,7 @@ export function useHermes() {
           sessionId: activeSessionId,
           messages: historyMessages,
           config: res.info,
+          running,
         }
       });
       
@@ -111,7 +124,10 @@ export function useHermes() {
       console.error('Failed to resume session:', e);
       if (e.message?.toLowerCase().includes('not found')) {
         localStorage.removeItem('hermes_active_session_id');
+        activeSessionIdRef.current = null;
         dispatch({ type: 'session.clear' });
+      } else {
+        activeSessionIdRef.current = previousSessionId;
       }
       dispatch({ type: 'error', payload: { message: `Failed to resume session: ${e.message}` } });
       throw e;
@@ -126,6 +142,8 @@ export function useHermes() {
   const createSession = useCallback(async () => {
     try {
       const res = await HermesGateway.createSession(80);
+      activeSessionIdRef.current = res.session_id;
+      localStorage.setItem('hermes_active_session_id', res.session_id);
       dispatch({
         type: 'session.created',
         payload: {
@@ -278,16 +296,16 @@ export function useHermes() {
   }, []);
 
   const clearChat = useCallback(async () => {
-    const sessionId = activeSessionIdRef.current;
-    if (sessionId) {
-      try {
-        await HermesGateway.closeSession(sessionId);
-      } catch (e) {
-        // ignore
-      }
-    }
-
     dispatch({ type: 'session.clear' });
+    activeSessionIdRef.current = null;
+    localStorage.removeItem('hermes_active_session_id');
+    setCurrentThreadTitle(null);
+  }, []);
+
+  const startBlankDraft = useCallback(() => {
+    dispatch({ type: 'session.clear' });
+    activeSessionIdRef.current = null;
+    localStorage.removeItem('hermes_active_session_id');
     setCurrentThreadTitle(null);
   }, []);
 
@@ -359,5 +377,6 @@ export function useHermes() {
     resolveBlockingRequest,
     resumeSession,
     createSession,
+    startBlankDraft,
   };
 }

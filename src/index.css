@@ -30,6 +30,24 @@ body {
   font-family: 'Space Grotesk', sans-serif;
 }
 
+.fi-selectable,
+.fi-selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.fi-selectable::selection,
+.fi-selectable *::selection {
+  background: rgba(244, 244, 245, 0.22);
+  color: #ffffff;
+}
+
+.fi-selectable::-moz-selection,
+.fi-selectable *::-moz-selection {
+  background: rgba(244, 244, 245, 0.22);
+  color: #ffffff;
+}
+
 [data-font-mode="terminal"],
 [data-font-mode="terminal"] body,
 [data-font-mode="terminal"] .font-serif-hermes,
@@ -43,6 +61,10 @@ body {
   border-radius: 0 !important;
 }
 
+[data-font-mode="terminal"] {
+  font-size: 14px;
+}
+
 [data-font-mode="terminal"] body {
   background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px);
   background-size: 100% 24px;
@@ -51,24 +73,10 @@ body {
 [data-motion-mode="less"] *,
 [data-motion-mode="less"] *::before,
 [data-motion-mode="less"] *::after {
-  animation: none !important;
-  transition-duration: 0.01ms !important;
-  transition-delay: 0ms !important;
   scroll-behavior: auto !important;
   filter: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-}
-
-[data-motion-mode="less"] .ethereal-card,
-[data-motion-mode="less"] .ethereal-pill {
-  background: rgba(5, 5, 5, 0.96);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-[data-motion-mode="less"] .fi-motion-pulse {
-  animation: var(--animate-pulse) !important;
 }
 
 /* iOS Standalone Momentum Scrollable */
@@ -83,6 +91,31 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+.fi-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) rgba(255, 255, 255, 0.035);
+}
+
+.fi-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.fi-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.035);
+  border-radius: 999px;
+}
+
+.fi-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(5, 5, 5, 0.85);
+  border-radius: 999px;
+}
+
+.fi-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
 }
 
 /* Ethereal Deep Glassmorphism matching reference image */

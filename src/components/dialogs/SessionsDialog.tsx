@@ -1,9 +1,9 @@
-import { StoredSession } from '../../types/hermes';
 import { motion } from 'framer-motion';
-import { RefreshCw, X, Trash2, FolderGit, Edit } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
+import { SessionRowModel, SessionRows } from '../sessions/SessionRows';
 
 interface SessionsDialogProps {
-  sessions: StoredSession[];
+  sessions: SessionRowModel[];
   loading: boolean;
   error: string | null;
   currentThreadId: string | null;
@@ -13,17 +13,9 @@ interface SessionsDialogProps {
   onDeleteSession: (sessionId: string) => void;
   onBranchSession?: (sessionId: string) => void;
   onRenameSession?: (sessionId: string, newTitle: string) => void;
+  onTogglePinSession?: (sessionId: string) => void;
+  reduceMotion?: boolean;
 }
-
-const formatSessionTime = (timestamp?: number) => {
-  if (!timestamp) return 'unknown';
-  try {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return 'unknown';
-  }
-};
 
 export const SessionsDialog = ({
   sessions,
@@ -36,15 +28,9 @@ export const SessionsDialog = ({
   onDeleteSession,
   onBranchSession,
   onRenameSession,
+  onTogglePinSession,
+  reduceMotion = false,
 }: SessionsDialogProps) => {
-  const handleRename = (id: string, currentTitle: string) => {
-    if (!onRenameSession) return;
-    const title = prompt('Enter new session title:', currentTitle);
-    if (title && title.trim()) {
-      onRenameSession(id, title.trim());
-    }
-  };
-
   return (
     <div 
       className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 px-4 pb-4 backdrop-blur-xl sm:items-center animate-fade-in"
@@ -54,9 +40,9 @@ export const SessionsDialog = ({
         role="dialog" 
         aria-modal="true" 
         aria-label="Hermes sessions"
-        initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }}
+        initial={{ opacity: 0, y: 18, filter: reduceMotion ? 'blur(0px)' : 'blur(8px)' }}
         animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-        exit={{ opacity: 0, y: 12, filter: 'blur(8px)' }}
+        exit={{ opacity: 0, y: 12, filter: reduceMotion ? 'blur(0px)' : 'blur(8px)' }}
         transition={{ duration: 0.22 }}
         onClick={(event) => event.stopPropagation()}
         className="max-h-[82vh] w-full max-w-xl overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950/95 shadow-2xl"
@@ -94,64 +80,15 @@ export const SessionsDialog = ({
             </div>
           )}
 
-          <div className="space-y-2">
-            {sessions.map((session) => (
-              <div 
-                key={session.id} 
-                className={`w-full rounded-2xl p-3 flex flex-col gap-2 relative transition-colors ${
-                  currentThreadId === session.id 
-                    ? 'bg-white/[0.06] border border-white/[0.06]' 
-                    : 'bg-white/[0.025] hover:bg-white/[0.04]'
-                }`}
-              >
-                <div 
-                  onClick={() => onConnectSession(session.id)}
-                  className="cursor-pointer flex-1"
-                >
-                  <div className="truncate font-serif-hermes text-[16px] italic text-zinc-200">
-                    {session.title || 'Untitled Session'}
-                  </div>
-                  {session.preview && (
-                    <div className="mt-1 line-clamp-1 font-sans-hermes text-[12px] text-neutral-500">
-                      {session.preview}
-                    </div>
-                  )}
-                  <div className="mt-2 flex items-center justify-between gap-3 font-sans-hermes text-[11px] text-neutral-600">
-                    <span>{session.message_count ?? 0} messages</span>
-                    <span>{formatSessionTime(session.updated_at || session.started_at)}</span>
-                  </div>
-                </div>
-
-                <div className="mt-1 flex items-center justify-end gap-3 pt-2 border-t border-white/[0.025]">
-                  {onBranchSession && (
-                    <button
-                      onClick={() => onBranchSession(session.id)}
-                      className="p-1 rounded text-neutral-500 hover:text-white transition-colors"
-                      title="Branch Session"
-                    >
-                      <FolderGit className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  {onRenameSession && (
-                    <button
-                      onClick={() => handleRename(session.id, session.title)}
-                      className="p-1 rounded text-neutral-500 hover:text-white transition-colors"
-                      title="Rename Session"
-                    >
-                      <Edit className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onDeleteSession(session.id)}
-                    className="p-1 rounded text-neutral-500 hover:text-red-400 transition-colors"
-                    title="Delete Session"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <SessionRows
+            sessions={sessions}
+            currentThreadId={currentThreadId}
+            onConnectSession={onConnectSession}
+            onDeleteSession={onDeleteSession}
+            onBranchSession={onBranchSession}
+            onRenameSession={onRenameSession}
+            onTogglePinSession={onTogglePinSession}
+          />
         </div>
       </motion.div>
     </div>

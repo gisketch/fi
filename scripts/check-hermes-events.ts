@@ -115,6 +115,39 @@ function testToolNameFallback() {
   console.log('✓ tool name fallback test passed.');
 }
 
+function testToolArgsResultShape() {
+  console.log('Testing tool args/result payload shape...');
+  let state = { ...initialHermesState };
+  state.messages = [
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '',
+      tools: [],
+      segments: [],
+      status: 'running',
+    }
+  ];
+
+  state = hermesEventReducer(state, {
+    type: 'tool.start',
+    payload: { name: 'memory', id: 't-args-1', args: { query: 'status' } }
+  });
+  state = hermesEventReducer(state, {
+    type: 'tool.complete',
+    payload: { name: 'memory', id: 't-args-1', result: { matches: ['ok'] }, duration: 0.2 }
+  });
+
+  const tool = state.messages[0].tools[0];
+  if (JSON.stringify(tool.input) !== JSON.stringify({ query: 'status' })) {
+    throw new Error(`Expected tool input to preserve args, got: ${JSON.stringify(tool.input)}`);
+  }
+  if (JSON.stringify(tool.output) !== JSON.stringify({ matches: ['ok'] })) {
+    throw new Error(`Expected tool output to preserve result, got: ${JSON.stringify(tool.output)}`);
+  }
+  console.log('✓ tool args/result payload shape test passed.');
+}
+
 function testBlockingRequests() {
   console.log('Testing blocking prompts queue reducer...');
   const approvalEvent = JSON.parse(readFileSync(join(fixturesDir, 'approval-request.json'), 'utf8'));
@@ -393,6 +426,7 @@ function runAll() {
     testReasoningDeltaDedupe();
     testToolLifecycle();
     testToolNameFallback();
+    testToolArgsResultShape();
     testBlockingRequests();
     testCustomActions();
     testHistoryConversionSkipsEmptyMessages();

@@ -132,4 +132,4 @@ Note: `bun run lint` is declared, but ESLint dependencies/config have not been v
 - 2026-05-23: Researched PWA notifications; added Notifications menu with support detection, permission request, service-worker-ready local notification test, HTTPS/service-worker checks, and iOS installed-PWA guidance.
 - 2026-05-24: Hermes Web API migration superseded the old run/thread path for primary chat transport; docs now point to WebSocket JSON-RPC services, the pure event reducer, dialog sheets, and fixture-backed event smoke checks.
 - 2026-05-24: Grouped consecutive inline tool rows by tool name so repeated calls render as compact labels like `Session Search x12`; full per-call audit remains in Work trace with raw tool names.
-- 2026-05-24: Added Appearance settings with persisted Less Animation and Terminal modes; Less Animation removes blur/animation effects and bypasses per-character chat spans for long-session phone typing performance.
+- 2026-05-24: Added Appearance settings with persisted Performant and Terminal modes; Performant removes blur-heavy effects while keeping snappy opacity and text entrance animations.
