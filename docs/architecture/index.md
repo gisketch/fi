@@ -22,15 +22,16 @@ Cross-cutting concerns enter through explicit provider interfaces.
   - [services/hermesTransport.ts](../../src/services/hermesTransport.ts): WebSocket JSON-RPC transport, request tracking, event subscriptions, and reconnect backoff.
   - [services/hermesGateway.ts](../../src/services/hermesGateway.ts): Typed static RPC facade for sessions, prompts, commands, config, tools, skills, voice, delegation, browser, shell/CLI, reload, rollback, agents, cron, insights, model, plugins, paste, and blocking responses.
   - [services/hermesRest.ts](../../src/services/hermesRest.ts): REST convenience client and SSE event stream fallback.
+  - [services/terminalGateway.ts](../../src/services/terminalGateway.ts): Browser client for the separate terminal gateway, including PIN unlock, token verification, local SSH profile storage, and terminal WebSocket URL construction.
   - [services/api.ts](../../src/services/api.ts): Deprecated legacy Fi Gateway run/thread service kept only for usage JSON and temporary compatibility until cleanup.
   - [state/hermesEventReducer.ts](../../src/state/hermesEventReducer.ts): Pure event reducer for sessions, chat messages, tool lifecycle, thinking/reasoning, blocking prompts, voice, browser progress, and errors.
   - [hooks/useHermes.ts](../../src/hooks/useHermes.ts): Compatibility facade consumed by the app; maps old thread/run names onto Hermes sessions while exposing connection, blocking prompt, and session actions.
-  - [components/dialogs](../../src/components/dialogs): Focused Hermes sheets for sessions, control center, and blocking prompts.
+  - [components/dialogs](../../src/components/dialogs): Focused Hermes sheets for sessions, control center, blocking prompts, and the lazy-loaded xterm terminal.
   - [components/MarkdownMessage.tsx](../../src/components/MarkdownMessage.tsx): Compact chat Markdown renderer with expandable heavy blocks; supports reduced-motion plain text rendering for long-session phone performance.
   - [components/VirtualMessage.tsx](../../src/components/VirtualMessage.tsx): Viewport virtualization for older chat messages.
   - [components/UsageWidget.tsx](../../src/components/UsageWidget.tsx): Legacy usage status component; current app also fetches usage directly for the compact composer pill.
   - [components/SettingsModal.tsx](../../src/components/SettingsModal.tsx): Legacy settings/model sheet not currently mounted by `App.tsx`.
-  - [App.tsx](../../src/App.tsx): Primary Fi iOS PWA shell, chat timeline, compact composer, menu, sessions dialog, control center, appearance settings, notifications, blocking prompts, and usage pill.
+  - [App.tsx](../../src/App.tsx): Primary Fi iOS PWA shell, chat timeline, compact composer, menu, sessions dialog, control center, terminal entry point, appearance settings, notifications, blocking prompts, and usage pill.
   - [index.css](../../src/index.css): Design systems & tailwind v4 styles, including Less Animation and Terminal appearance modes.
 - [tests](../../tests): Fixture directory for Hermes reducer/event smoke checks.
 - [config](../../config): Environment contract and security notes.
@@ -42,5 +43,6 @@ Cross-cutting concerns enter through explicit provider interfaces.
 - **No browser admin token**: Admin writes use a private proxy path. Browser code must not contain `HERMES_WEB_ADMIN_TOKEN`.
 - **Transport priority**: WebSocket JSON-RPC is primary because it covers the full Hermes Web API. REST is convenience/fallback. SSE is passive event fallback.
 - **Session model**: New behavior is session-oriented. Old run/thread names may remain only as compatibility aliases while UI migration finishes.
+- **Terminal gateway separation**: In-app terminal uses a separate private WebSSH gateway configured by `VITE_TERMINAL_GATEWAY_URL`; it does not reuse Hermes `/api/ws`.
 - **Forward compatibility**: External API payloads preserve unknown fields instead of dropping data.
 - **Responsive Shell**: Interface viewport limits are strictly locked on iPhone ratios to prevent standalone app bounce.

@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect } from 'react';
+import { lazy, memo, Suspense, useState, useRef, useEffect } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useHermes } from './hooks/useHermes';
 import type { ToolActivity, ChatMessage, ChatSegment } from './hooks/useHermes';
@@ -27,6 +27,10 @@ import {
   groupChatToolSegments,
 } from './utils/toolTrace';
 import type { ToolTraceGroup } from './utils/toolTrace';
+
+const TerminalDialog = lazy(() =>
+  import('./components/dialogs/TerminalDialog').then((module) => ({ default: module.TerminalDialog }))
+);
 
 const getDeepSeekBalance = (usage: UsageData) => {
   const total = usage.deepseek?.total;
@@ -745,6 +749,7 @@ export default function App() {
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isAppearanceOpen, setIsAppearanceOpen] = useState(false);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [appearanceSettings, setAppearanceSettings] = useState<AppearanceSettings>(readAppearanceSettings);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
@@ -1164,6 +1169,12 @@ export default function App() {
     setIsControlCenterOpen(true);
   };
 
+  const openTerminal = () => {
+    setFooterPicker(null);
+    setIsPromptExpanded(false);
+    setIsTerminalOpen(true);
+  };
+
   const handleEnableNotifications = async () => {
     setNotificationMessage(null);
     setNotificationError(null);
@@ -1477,6 +1488,14 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {isTerminalOpen && (
+          <Suspense fallback={null}>
+            <TerminalDialog onClose={() => setIsTerminalOpen(false)} />
+          </Suspense>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {footerPicker && isPromptExpanded && (
           <div className="fixed inset-0 z-[60] flex items-end justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+5.75rem)]">
             <motion.div
@@ -1714,6 +1733,15 @@ export default function App() {
                     </span>
                     <span className="text-neutral-400">{contextPercent ?? 0}%</span>
                   </span>
+                  <button
+                    type="button"
+                    onClick={openTerminal}
+                    className="flex min-h-7 items-center gap-1.5 rounded-lg pr-1 text-neutral-400 active:scale-[0.98]"
+                    title="Terminal"
+                    aria-label="Open terminal"
+                  >
+                    <Terminal className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
+                  </button>
                 </div>
                 
                 {/* Circular Action Button */}

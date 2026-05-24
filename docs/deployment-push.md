@@ -25,6 +25,10 @@ VITE_API_URL=/api
 VITE_API_TOKEN=<legacy browser token if still needed>
 VITE_HERMES_API_URL=https://fi.gisketch.com
 VITE_HERMES_WEB_TOKEN=<regular Hermes browser token>
+VITE_TERMINAL_GATEWAY_URL=https://fi-terminal.gisketch.com
+VITE_TERMINAL_DEFAULT_HOST=167.254.240.228
+VITE_TERMINAL_DEFAULT_PORT=22
+VITE_TERMINAL_DEFAULT_USER=root
 VITE_PUSH_PUBLIC_KEY=<VAPID public key>
 VAPID_PUBLIC_KEY=<same VAPID public key>
 VAPID_PRIVATE_KEY=<VAPID private key>
@@ -33,6 +37,23 @@ PUSH_API_TOKEN=<server-to-server bearer token>
 ```
 
 Do not commit `.env`; import/set these in Netlify.
+
+## Terminal Gateway
+
+The in-app terminal is separate from Hermes. Browser code talks to the private terminal gateway:
+
+```txt
+POST https://fi-terminal.gisketch.com/auth/unlock
+GET  https://fi-terminal.gisketch.com/auth/verify
+WS   wss://fi-terminal.gisketch.com/terminal
+```
+
+Browser storage:
+
+- `fi_terminal_gateway_token`: JWT returned by the terminal gateway after PIN unlock.
+- `fi_terminal_ssh_profile`: local SSH host, port, user, and password profile.
+
+The PIN itself is not stored. SSH credentials stay browser-local until the user opens a terminal session, then they are sent directly to the terminal gateway WebSocket.
 
 ## Push API
 
