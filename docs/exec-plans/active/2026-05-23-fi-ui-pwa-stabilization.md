@@ -131,3 +131,4 @@ Note: `bun run lint` is declared, but ESLint dependencies/config have not been v
 - 2026-05-23: Replaced favicon/PWA icon with a black square Fi wordmark using Fraunces/serif typography and renamed manifest/app title to Fi.
 - 2026-05-23: Researched PWA notifications; added Notifications menu with support detection, permission request, service-worker-ready local notification test, HTTPS/service-worker checks, and iOS installed-PWA guidance.
 - 2026-05-24: Hermes Web API migration superseded the old run/thread path for primary chat transport; docs now point to WebSocket JSON-RPC services, the pure event reducer, dialog sheets, and fixture-backed event smoke checks.
+- 2026-05-24: Grouped consecutive inline tool rows by tool name so repeated calls render as compact labels like `Session Search x12`; full per-call audit remains in Work trace with raw tool names.

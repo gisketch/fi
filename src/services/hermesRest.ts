@@ -1,9 +1,10 @@
-import { HERMES_API_URL, HERMES_WEB_TOKEN } from '../config/hermes';
+import { HERMES_API_URL, HERMES_WEB_TOKEN, getHermesWebToken } from '../config/hermes';
 import { GatewayEvent } from '../types/hermes';
 
-const authHeaders: Record<string, string> = HERMES_WEB_TOKEN
-  ? { 'Authorization': `Bearer ${HERMES_WEB_TOKEN}` }
-  : {};
+const getAuthHeaders = async (): Promise<Record<string, string>> => {
+  const token = HERMES_WEB_TOKEN || await getHermesWebToken();
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
 
 async function parseJsonError(response: Response, fallback: string): Promise<Error> {
   const text = await response.text().catch(() => '');
@@ -30,7 +31,7 @@ export class HermesRestClient {
   ): Promise<T> {
     const url = `${HERMES_API_URL}${path}`;
     const headers: Record<string, string> = {
-      ...authHeaders,
+      ...await getAuthHeaders(),
       ...(options.headers as Record<string, string>),
     };
 
@@ -69,7 +70,7 @@ export class HermesRestClient {
       const response = await fetch(url, {
         method: 'GET',
         headers: {
-          ...authHeaders,
+          ...await getAuthHeaders(),
           'Accept': 'text/event-stream',
         } as HeadersInit,
         signal: controller.signal,

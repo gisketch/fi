@@ -1,4 +1,5 @@
 import { initialHermesState, hermesEventReducer, messagesFromHistory } from '../src/state/hermesEventReducer';
+import { formatToolGroupLabel, getToolDisplayLabel, groupChatToolSegments } from '../src/utils/toolTrace';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -356,6 +357,34 @@ function testReasoningDeltaDedupe() {
   console.log('✓ duplicated reasoning delta normalization test passed.');
 }
 
+function testToolTraceGrouping() {
+  console.log('Testing grouped tool trace display helpers...');
+  const grouped = groupChatToolSegments([
+    { id: 't1', type: 'tool', tool: { id: 't1', tool: 'session_search', status: 'completed' } },
+    { id: 't2', type: 'tool', tool: { id: 't2', tool: 'session_search', status: 'completed' } },
+    { id: 'h1', type: 'tool', tool: { id: 'h1', tool: 'honcho_context', status: 'failed' } },
+    { id: 'txt1', type: 'text', content: 'done' },
+    { id: 's1', type: 'tool', tool: { id: 's1', tool: 'mcp__serena__search_for_pattern', status: 'running' } },
+  ]);
+
+  if (grouped.length !== 4) {
+    throw new Error(`Expected 4 grouped segments, got: ${grouped.length}`);
+  }
+  if (grouped[0].type !== 'tool-group' || formatToolGroupLabel(grouped[0]) !== 'Session Search x2') {
+    throw new Error(`Expected first group label Session Search x2, got: ${JSON.stringify(grouped[0])}`);
+  }
+  if (grouped[1].type !== 'tool-group' || grouped[1].status !== 'failed') {
+    throw new Error(`Expected failed Honcho Context group, got: ${JSON.stringify(grouped[1])}`);
+  }
+  if (grouped[3].type !== 'tool-group' || formatToolGroupLabel(grouped[3]) !== 'Serena Search Pattern') {
+    throw new Error(`Expected readable unknown MCP label, got: ${JSON.stringify(grouped[3])}`);
+  }
+  if (getToolDisplayLabel('functions.exec_command') !== 'Exec Command') {
+    throw new Error('Expected namespace tool label to drop generic namespace');
+  }
+  console.log('✓ grouped tool trace display helper test passed.');
+}
+
 function runAll() {
   try {
     testGatewayReady();
@@ -367,6 +396,7 @@ function runAll() {
     testBlockingRequests();
     testCustomActions();
     testHistoryConversionSkipsEmptyMessages();
+    testToolTraceGrouping();
     console.log('\nAll pure event reducer smoke tests passed!');
   } catch (err: any) {
     console.error('\nSmoke tests failed:', err.message);

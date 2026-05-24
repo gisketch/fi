@@ -6,6 +6,10 @@ publish = "dist"
 [build.environment]
 SECRETS_SCAN_OMIT_KEYS = "VITE_API_URL,VITE_API_TOKEN"
 
+[functions]
+directory = "netlify/functions"
+node_bundler = "esbuild"
+
 [[redirects]]
 from = "/api/*"
 to = "https://fi.gisketch.com/:splat"
@@ -15,5 +19,17 @@ force = true
 [[redirects]]
 from = "/usage-api/*"
 to = "http://167.254.240.228:8088/:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/push-api/*"
+to = "/.netlify/functions/push-:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/runtime-api/hermes-config"
+to = "/.netlify/functions/hermes-config"
 status = 200
 force = true

@@ -1,8 +1,10 @@
 import { memo, useState, useRef, useEffect } from 'react';
 import type { KeyboardEvent } from 'react';
-import { useHermes, ToolActivity, ChatMessage, ChatSegment } from './hooks/useHermes';
+import { useHermes } from './hooks/useHermes';
+import type { ToolActivity, ChatMessage, ChatSegment } from './hooks/useHermes';
 import { getUsageData, UsageData } from './services/api';
 import HermesGateway from './services/hermesGateway';
+import { HermesRestClient } from './services/hermesRest';
 import { StoredSession, Usage } from './types/hermes';
 import { SessionsDialog } from './components/dialogs/SessionsDialog';
 import { ControlCenterDialog } from './components/dialogs/ControlCenterDialog';
@@ -18,62 +20,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Coins, Copy, Layers, Menu, X, Brain, Cpu } from 'lucide-react';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { VirtualMessage } from './components/VirtualMessage';
-
-const getToolStatusLabel = (tool: ToolActivity) => {
-  const running = tool.status === 'running';
-
-  switch (tool.tool) {
-    case 'terminal':
-      return running ? 'Running terminal…' : 'Ran terminal';
-    case 'read_file':
-      return running ? 'Reading file…' : 'Read file';
-    case 'search_files':
-      return running ? 'Searching files…' : 'Searched files';
-    case 'memory':
-      return running ? 'Searching session…' : 'Searched session';
-    case 'write_file':
-      return running ? 'Writing file…' : 'Wrote file';
-    case 'patch':
-      return running ? 'Editing file…' : 'Edited file';
-    case 'web_search':
-    case 'browser':
-      return running ? 'Browsing web…' : 'Browsed web';
-    case 'cronjob':
-      return running ? 'Scheduling work…' : 'Scheduled work';
-    case 'clarify':
-      return running ? 'Clarifying intent…' : 'Clarified intent';
-    default:
-      return running ? 'Working through step…' : 'Finished step';
-  }
-};
-
-const getToolDisplayName = (tool?: string) => {
-  if (!tool) return 'Tool call';
-  switch (tool) {
-    case 'terminal':
-      return 'Terminal';
-    case 'read_file':
-      return 'Read file';
-    case 'write_file':
-      return 'Write file';
-    case 'patch':
-      return 'Patch';
-    case 'search_files':
-      return 'Search files';
-    case 'web_search':
-      return 'Web search';
-    case 'browser':
-      return 'Browser';
-    case 'memory':
-      return 'Memory';
-    case 'cronjob':
-      return 'Schedule';
-    case 'clarify':
-      return 'Clarify';
-    default:
-      return tool.replace(/_/g, ' ');
-  }
-};
+import {
+  formatToolGroupLabel,
+  getToolDisplayLabel,
+  getToolGroupCount,
+  groupChatToolSegments,
+} from './utils/toolTrace';
+import type { ToolTraceGroup } from './utils/toolTrace';
 
 const getDeepSeekBalance = (usage: UsageData) => {
   const total = usage.deepseek?.total;
@@ -109,6 +62,113 @@ const isMobileKeyboard = () => {
 
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
     || window.matchMedia('(max-width: 767px) and (pointer: coarse)').matches;
+};
+
+type SlashCommandOption = {
+  command: string;
+  description: string;
+  score: number;
+};
+
+const uniqueSlashCommands = (commands: SlashCommandOption[]) => {
+  const seen = new Set<string>();
+  return commands.filter((option) => {
+    const key = option.command.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const normalizeSlashCommandCatalog = (payload: any): SlashCommandOption[] => {
+  const fromPairs = Array.isArray(payload?.pairs)
+    ? (payload.pairs as unknown[])
+      .filter((pair): pair is [unknown, unknown] => Array.isArray(pair) && pair.length >= 2)
+      .map(([command, description]) => ({
+        command: String(command).startsWith('/') ? String(command) : `/${String(command)}`,
+        description: String(description || ''),
+        score: 0,
+      }))
+    : [];
+
+  const fromCategories = Array.isArray(payload?.categories)
+    ? payload.categories.flatMap((category: any) => {
+      const items = Array.isArray(category?.items) ? category.items : Array.isArray(category?.commands) ? category.commands : [];
+      return items.map((item: any) => ({
+        command: String(item?.command || item?.name || item?.text || '').startsWith('/')
+          ? String(item?.command || item?.name || item?.text || '')
+          : `/${String(item?.command || item?.name || item?.text || '')}`,
+        description: String(item?.description || item?.help || item?.meta || category?.title || ''),
+        score: 0,
+      }));
+    }).filter((option: SlashCommandOption) => option.command.length > 1)
+    : [];
+
+  return uniqueSlashCommands([...fromPairs, ...fromCategories])
+    .sort((a, b) => a.command.localeCompare(b.command));
+};
+
+const getSlashToken = (value: string) => {
+  if (!value.startsWith('/') || value.includes('\n')) return null;
+  const match = value.match(/^\/[^\s]*/);
+  return match?.[0] || null;
+};
+
+const orderedFuzzyScore = (candidate: string, query: string) => {
+  let cursor = 0;
+  let score = 0;
+
+  for (const char of query) {
+    const index = candidate.indexOf(char, cursor);
+    if (index === -1) return 0;
+    score += Math.max(1, 12 - (index - cursor));
+    cursor = index + 1;
+  }
+
+  return score;
+};
+
+const scoreSlashCommand = (option: SlashCommandOption, token: string) => {
+  const query = token.toLowerCase();
+  const command = option.command.toLowerCase();
+  const body = command.slice(1);
+  const description = option.description.toLowerCase();
+
+  if (query === '/') return 50;
+  const bareQuery = query.slice(1);
+  if (command === query) return 1000;
+  if (command.startsWith(query)) return 800 - command.length;
+  if (body.startsWith(bareQuery)) return 700 - command.length;
+  if (command.includes(bareQuery)) return 400 - command.indexOf(bareQuery);
+  if (description.includes(bareQuery)) return 180;
+  return orderedFuzzyScore(body, bareQuery);
+};
+
+const getSlashSuggestions = (commands: SlashCommandOption[], value: string) => {
+  const token = getSlashToken(value);
+  if (!token) return [];
+  if (token === '/') {
+    return commands.map((option) => ({ ...option, score: 50 }));
+  }
+
+  return commands
+    .map((option) => ({ ...option, score: scoreSlashCommand(option, token) }))
+    .filter((option) => option.score > 0)
+    .sort((a, b) => b.score - a.score || a.command.localeCompare(b.command))
+    .slice(0, 8);
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
 };
 
 const chatEntrance = {
@@ -183,7 +243,9 @@ const ToolRunDialog = ({ tools, onClose }: { tools: ToolActivity[]; onClose: () 
       <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
         <div className="min-w-0">
           <div className="font-serif-hermes text-[17px] italic text-zinc-200">Work trace</div>
-          <div className="font-sans-hermes text-[11px] text-neutral-600">{tools.length} agent step{tools.length === 1 ? '' : 's'}</div>
+          <div className="font-sans-hermes text-[11px] text-neutral-600">
+            {tools.length} call{tools.length === 1 ? '' : 's'} | {getToolGroupCount(tools)} group{getToolGroupCount(tools) === 1 ? '' : 's'}
+          </div>
         </div>
         <button type="button" onClick={onClose} className="rounded-full p-1 text-neutral-500 active:scale-95">
           <X className="h-4 w-4" />
@@ -195,7 +257,10 @@ const ToolRunDialog = ({ tools, onClose }: { tools: ToolActivity[]; onClose: () 
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2 text-neutral-300">
                 <Code className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
-                <span className="truncate font-sans-hermes text-[13px] capitalize">{getToolDisplayName(tool.tool)}</span>
+                <div className="min-w-0">
+                  <div className="truncate font-sans-hermes text-[13px]">{getToolDisplayLabel(tool.tool)}</div>
+                  <div className="truncate font-mono text-[10px] text-neutral-700">{tool.tool}</div>
+                </div>
               </div>
               <span className={`shrink-0 font-mono text-[11px] ${
                 tool.status === 'failed' ? 'text-red-300/70' : tool.status === 'running' ? 'text-white/70' : 'text-neutral-600'
@@ -222,14 +287,14 @@ const ToolRunDialog = ({ tools, onClose }: { tools: ToolActivity[]; onClose: () 
 
 
 
-const ToolSegmentLine = memo(({ tool, tools, onOpen, className }: { 
-  tool: ToolActivity; 
+const ToolSegmentLine = memo(({ group, tools, onOpen, className }: {
+  group: ToolTraceGroup;
   tools: ToolActivity[]; 
   onOpen: () => void;
   className?: string;
 }) => {
-  const active = tool.status === 'running';
-  const failed = tool.status === 'failed';
+  const active = group.status === 'running';
+  const failed = group.status === 'failed';
 
   return (
     <motion.button
@@ -242,7 +307,7 @@ const ToolSegmentLine = memo(({ tool, tools, onOpen, className }: {
       aria-label={`Open work trace with ${tools.length} tool calls`}
     >
       <Code className={`w-3.5 h-3.5 text-neutral-500 shrink-0 ${active ? 'animate-pulse' : ''}`} />
-      <ToolStatusText text={getToolStatusLabel(tool)} active={active} />
+      <ToolStatusText text={formatToolGroupLabel(group)} active={active} />
     </motion.button>
   );
 });
@@ -327,11 +392,13 @@ const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, o
     );
   }
 
+  const groupedSegments = groupChatToolSegments(segments);
+
   return (
     <div className="w-full min-w-0 flex flex-col items-start break-words [overflow-wrap:anywhere]">
-      {segments.map((segment, index) => {
+      {groupedSegments.map((segment, index) => {
         const isText = segment.type === 'text';
-        const prevSegment = index > 0 ? segments[index - 1] : null;
+        const prevSegment = index > 0 ? groupedSegments[index - 1] : null;
         const prevIsText = prevSegment?.type === 'text';
 
         // Determine spacing class
@@ -344,7 +411,7 @@ const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, o
           }
         }
 
-        const isThinkingActive = isRunning && index === segments.length - 1;
+        const isThinkingActive = isRunning && index === groupedSegments.length - 1;
 
         return isText ? (
           <div key={segment.id} className={`w-full min-w-0 break-words [overflow-wrap:anywhere] ${spacingClass}`}>
@@ -360,9 +427,9 @@ const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, o
               <MarkdownMessage content={segment.content} />
             </div>
           </details>
-        ) : (
-          <ToolSegmentLine key={segment.id} tool={segment.tool} tools={tools} onOpen={onOpenTools} className={spacingClass} />
-        );
+        ) : segment.type === 'tool-group' ? (
+          <ToolSegmentLine key={segment.id} group={segment} tools={tools} onOpen={onOpenTools} className={spacingClass} />
+        ) : null;
       })}
     </div>
   );
@@ -426,13 +493,13 @@ const NotificationsDialog = ({ message, error, onEnable, onClose }: {
         <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
           <div>
             <div className="font-serif-hermes text-[18px] italic text-zinc-200">Notifications</div>
-            <div className="font-sans-hermes text-[11px] text-neutral-600">PWA local notification test</div>
+            <div className="font-sans-hermes text-[11px] text-neutral-600">PWA push notification setup</div>
           </div>
           <button type="button" onClick={onClose} className="rounded-full p-1 text-neutral-500 active:scale-95" aria-label="Close notifications"><X className="h-4 w-4" /></button>
         </div>
         <div className="space-y-4 p-4">
           <p className="font-serif-hermes text-[16px] italic leading-relaxed text-neutral-400">
-            Notifications need HTTPS, service workers, and browser permission. On iPhone, web push/local notifications work from an installed Home Screen PWA on iOS 16.4+.
+            Notifications need HTTPS, service workers, and browser permission. On iPhone, Web Push works from an installed Home Screen PWA on iOS 16.4+.
           </p>
           <div className="rounded-2xl bg-white/[0.025] p-3 font-sans-hermes text-[12px] text-neutral-500">
             Permission: {support.permission}
@@ -460,6 +527,7 @@ export default function App() {
     error,
     clearError,
     sendMessage,
+    executeSlashCommand,
     stopActiveRun,
     clearChat,
     connectionStatus,
@@ -487,9 +555,16 @@ export default function App() {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [slashCommands, setSlashCommands] = useState<SlashCommandOption[]>([]);
+  const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
+  const [slashCommandsError, setSlashCommandsError] = useState<string | null>(null);
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const slashSuggestions = getSlashSuggestions(slashCommands, inputValue);
+  const slashToken = getSlashToken(inputValue);
+  const isSlashPrompt = Boolean(slashToken);
 
   // Sync usage balance silently in background
   useEffect(() => {
@@ -607,6 +682,39 @@ export default function App() {
     syncTextareaHeight();
   }, [inputValue, isPromptExpanded]);
 
+  useEffect(() => {
+    if (!isPromptExpanded || !isSlashPrompt || slashCommands.length > 0 || slashCommandsLoading) return;
+
+    let cancelled = false;
+    setSlashCommandsLoading(true);
+    setSlashCommandsError(null);
+
+    const loadSlashCommands = async () => {
+      try {
+        const catalog = await withTimeout(HermesRestClient.listCommands(), 4000, 'Slash command catalog')
+          .catch(() => withTimeout(HermesGateway.catalogCommands(), 4000, 'Slash command catalog'));
+        if (cancelled) return;
+        setSlashCommands(normalizeSlashCommandCatalog(catalog));
+      } catch (e) {
+        if (!cancelled) {
+          setSlashCommandsError(e instanceof Error ? e.message : 'Failed to load slash commands');
+        }
+      } finally {
+        if (!cancelled) setSlashCommandsLoading(false);
+      }
+    };
+
+    void loadSlashCommands();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPromptExpanded, isSlashPrompt, slashCommands.length]);
+
+  useEffect(() => {
+    setSelectedSlashIndex(0);
+  }, [inputValue, slashCommands.length]);
+
   const loadModelOptions = async () => {
     try {
       const res = await HermesGateway.getModelOptions(currentThreadId || undefined);
@@ -649,15 +757,70 @@ export default function App() {
     }
   };
 
+  const completeSlashSelection = (appendSpace = true) => {
+    const token = getSlashToken(inputValue);
+    const selected = slashSuggestions[selectedSlashIndex] || slashSuggestions[0];
+    if (!token || !selected) return false;
+
+    selectSlashCommand(selected, appendSpace);
+    return true;
+  };
+
+  const selectSlashCommand = (option: SlashCommandOption, appendSpace = true) => {
+    const token = getSlashToken(inputValue);
+    if (!token) return;
+
+    const rest = inputValue.slice(token.length).replace(/^\s*/, '');
+    const nextValue = `${option.command}${appendSpace ? ' ' : ''}${rest}`;
+    const cursor = `${option.command}${appendSpace ? ' ' : ''}`.length;
+    setInputValue(nextValue);
+
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(cursor, cursor);
+    });
+  };
+
   const handleSend = () => {
     if (!inputValue.trim() || isRunning) return;
-    sendMessage(inputValue, selectedModel);
+    const text = inputValue.trim();
+    if (text.startsWith('/')) {
+      void executeSlashCommand(text);
+    } else {
+      sendMessage(inputValue, selectedModel);
+    }
     setInputValue('');
     setFooterPicker(null);
     setIsPromptExpanded(false); // Collapse after sending
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isSlashPrompt && slashSuggestions.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setSelectedSlashIndex((index) => (index + 1) % slashSuggestions.length);
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setSelectedSlashIndex((index) => (index - 1 + slashSuggestions.length) % slashSuggestions.length);
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        completeSlashSelection(true);
+        return;
+      }
+
+      if (event.key === ' ' && slashToken && slashToken !== (slashSuggestions[selectedSlashIndex] || slashSuggestions[0])?.command) {
+        event.preventDefault();
+        completeSlashSelection(true);
+        return;
+      }
+    }
+
     if (event.key !== 'Enter' || event.shiftKey || isMobileKeyboard()) return;
 
     event.preventDefault();
@@ -1069,7 +1232,34 @@ export default function App() {
 
       {/* Bottom Message Composition - Unified Single Container layout transition */}
       <footer className="w-full shrink-0 px-4 pt-2 pb-0 sm:pb-[calc(env(safe-area-inset-bottom)+0.25rem)] bg-transparent z-40 relative">
-        <div className="max-w-xl mx-auto">
+        <div className="relative max-w-xl mx-auto">
+          {isPromptExpanded && isSlashPrompt && (slashCommandsLoading || slashCommandsError || slashSuggestions.length > 0) && (
+            <div className="absolute bottom-[calc(100%+0.5rem)] left-0 right-0 z-50 max-h-[260px] overflow-y-auto rounded-[22px] border border-white/[0.08] bg-neutral-950/95 p-1 shadow-2xl backdrop-blur-xl no-scrollbar">
+              {slashCommandsLoading && (
+                <div className="px-3 py-2 font-mono text-[11px] text-neutral-500">Loading commands...</div>
+              )}
+              {slashCommandsError && !slashCommandsLoading && (
+                <div className="px-3 py-2 font-mono text-[11px] text-red-300/70">{slashCommandsError}</div>
+              )}
+              {!slashCommandsLoading && !slashCommandsError && slashSuggestions.map((option, index) => (
+                <button
+                  key={option.command}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setSelectedSlashIndex(index);
+                    selectSlashCommand(option, true);
+                  }}
+                  className={`flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition-colors ${
+                    index === selectedSlashIndex ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <span className="w-[104px] shrink-0 truncate font-mono text-[12px] text-zinc-200">{option.command}</span>
+                  <span className="min-w-0 flex-1 truncate font-sans-hermes text-[12px] leading-5 text-neutral-500">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
           
           <div
             className={`ethereal-card shadow-2xl relative mx-auto overflow-hidden rounded-[24px] ${

@@ -6,6 +6,8 @@
 - [Core Beliefs](core-beliefs.md)
 - [Quality](quality.md)
 - [Agent Targets](agent-targets.md)
+- [Deploy And Push](deployment-push.md)
+- [VPS Push Notifications](vps-push-notifications.md)
 
 ## Deeper Context
 

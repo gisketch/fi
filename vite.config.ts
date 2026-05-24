@@ -9,20 +9,32 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png', 'icons/fi-icon-192.png', 'icons/fi-icon-512.png', 'push-handler.js'],
+      workbox: {
+        importScripts: ['/push-handler.js']
+      },
       manifest: {
+        id: '/',
         name: 'Fi Personal Assistant',
         short_name: 'Fi',
         description: 'iOS Native PWA for talking to your Hermes.dev AI agent',
         theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',
+        start_url: '/',
+        scope: '/',
         orientation: 'portrait',
         icons: [
           {
-            src: 'favicon.svg',
-            sizes: '192x192 512x512',
-            type: 'image/svg+xml',
+            src: 'icons/fi-icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: 'icons/fi-icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
             purpose: 'any maskable'
           }
         ]
@@ -37,7 +49,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://167.254.240.228:8643',
+        target: 'https://fi.gisketch.com',
         changeOrigin: true,
         ws: true,
         rewrite: (path) => path.startsWith('/api/ws') ? path : path.replace(/^\/api/, ''),

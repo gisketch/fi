@@ -200,6 +200,68 @@ export function useHermes() {
     }
   }, [state.isRunning, state.messages, createSession]);
 
+  const executeSlashCommand = useCallback(async (command: string) => {
+    const trimmed = command.trim();
+    if (!trimmed || state.isRunning) return;
+
+    dispatch({ type: 'error', payload: { message: null } });
+
+    let sessionId = activeSessionIdRef.current;
+    if (!sessionId) {
+      try {
+        sessionId = await createSession();
+      } catch {
+        return;
+      }
+    }
+
+    const userMsg: ChatMessage = {
+      id: makeId('user'),
+      role: 'user',
+      content: trimmed,
+      tools: [],
+      segments: [{ id: makeId('text'), type: 'text', content: trimmed }],
+      status: 'completed',
+      threadId: sessionId || undefined,
+    };
+
+    dispatch({
+      type: 'message.user_sent',
+      payload: { message: userMsg }
+    });
+
+    const userMessageCount = state.messages.filter((m) => m.role === 'user').length;
+    if (userMessageCount === 0) {
+      const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed;
+      try {
+        await HermesGateway.getOrSetTitle(sessionId || '', title);
+        setCurrentThreadTitle(title);
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      const res = await HermesGateway.execSlash(sessionId || '', trimmed);
+      const output = [
+        res.warning ? `Warning: ${res.warning}` : '',
+        res.output || '',
+      ].filter(Boolean).join('\n\n') || `Executed ${trimmed}`;
+
+      dispatch({
+        type: 'message.complete',
+        payload: { text: output, status: 'completed' }
+      });
+    } catch (e: any) {
+      const message = `Slash command failed: ${e.message}`;
+      dispatch({ type: 'error', payload: { message } });
+      dispatch({
+        type: 'message.complete',
+        payload: { text: message, status: 'failed' }
+      });
+    }
+  }, [state.isRunning, state.messages, createSession]);
+
   const stopActiveRun = useCallback(async () => {
     const sessionId = activeSessionIdRef.current;
     if (!sessionId) return;
@@ -281,6 +343,7 @@ export function useHermes() {
     error: state.error,
     clearError,
     sendMessage,
+    executeSlashCommand,
     stopActiveRun,
     clearChat,
     loadThread,

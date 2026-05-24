@@ -15,3 +15,6 @@ refs/
 .serena/cache/
 .serena/logs/
 # sonata:block=context-tools:end
+
+# Local Netlify folder
+.netlify

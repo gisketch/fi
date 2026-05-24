@@ -9,10 +9,9 @@ Migrate Fi UI from the deprecated Fi Gateway run/thread API to the new Hermes We
 Resolved owner inputs for implementation + integration testing:
 
 1. **Hermes Web API base URLs**
-   - Test/staging URL: `http://167.254.240.228:8643`.
-   - Final production URL after DNS/API cutover: `https://fi.gisketch.com`.
-   - Implementation should use the IP URL for live testing first, then switch the env value to the final HTTPS URL for production.
-   - API must serve `GET /health`, `WS /api/ws`, `GET /v1/events`, and `REST /v1/*` at both targets.
+   - Current API URL: `https://fi.gisketch.com`.
+   - The API has no root route; `https://fi.gisketch.com/` returning 404 is expected.
+   - API must serve `GET /health`, `WS /api/ws`, `GET /v1/events`, and `REST /v1/*`.
 
 2. **Regular client token**
    - Regular `HERMES_WEB_TOKEN` exists in the server-side `hermes-web-pwa/.env`.
@@ -386,8 +385,8 @@ types -> config -> services -> reducers -> hooks -> interface
 ## Phase 0 — Preflight Decisions And Safety
 
 1. Confirmed owner inputs.
-   - Test API URL: `http://167.254.240.228:8643`.
-   - Final API URL: `https://fi.gisketch.com`.
+   - Current API URL: `https://fi.gisketch.com`.
+   - Root URL returns 404 by design; validate with `/health`, `/v1/...`, or `/api/ws`.
    - Regular token exists in server `hermes-web-pwa/.env`; do not write token value into repo docs/source.
    - Admin path: private server/proxy, no browser admin token.
    - Dangerous features allowed with warning/confirmation dialogs.
@@ -401,8 +400,7 @@ types -> config -> services -> reducers -> hooks -> interface
    - CORS allows local dev origin and production origin.
 
 3. Add env contract.
-   - `VITE_HERMES_API_URL=http://167.254.240.228:8643` for integration testing.
-   - `VITE_HERMES_API_URL=https://fi.gisketch.com` for final cutover.
+   - `VITE_HERMES_API_URL=https://fi.gisketch.com`.
    - `VITE_HERMES_WEB_TOKEN` for the regular client token when direct browser auth is used; never commit value.
    - `VITE_HERMES_ADMIN_MODE=proxy`.
    - `VITE_HERMES_ADMIN_PROXY_URL` for admin-only writes once proxy exists.
@@ -1026,7 +1024,7 @@ bun scripts/smoke-hermes-api.mjs
 - 2026-05-24: Preserve Fi UI aesthetic by adding API power through sheets/dialogs/command palette, not a dashboard redesign.
 - 2026-05-24: Treat admin-token browser exposure as an owner decision/blocker for config writes and provider key management.
 - 2026-05-24: Owner selected recommended admin path: private proxy only; no browser-shipped admin token.
-- 2026-05-24: Use `http://167.254.240.228:8643` for integration testing and `https://fi.gisketch.com` for final cutover.
+- 2026-05-24: Cut Hermes API base over to `https://fi.gisketch.com`; root route 404 is expected, validate with `/health`, `/v1/...`, or `/api/ws`.
 - 2026-05-24: Keep legacy usage widget source for now.
 - 2026-05-24: Defer browser file/image attachment.
 - 2026-05-24: Dangerous/full-control features are allowed with warning/confirmation dialogs.
@@ -1044,3 +1042,4 @@ bun scripts/smoke-hermes-api.mjs
 - 2026-05-24: Added owner deployment context: test API IP URL, final `https://fi.gisketch.com` cutover URL, server-side regular token presence without recording secret value, CORS wildcard during migration, admin proxy decision, dangerous-action confirmations, legacy usage retention, and deferred browser attachments.
 - 2026-05-24: Verified the provided token value was not written to the plan and re-ran `./scripts/check-sonata.sh` (`sonata ok`).
 - 2026-05-24: Synced Sonata docs with current code: architecture, project brief, quality gates, config env contract, tests README, source README, API reference pointer, and this implementation progress snapshot.
+- 2026-05-24: Added composer slash command support backed by Hermes `commands.catalog`, local fuzzy ranking, Space/Tab completion, and `slash.exec` execution.

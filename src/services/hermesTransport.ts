@@ -1,4 +1,4 @@
-import { HERMES_WS_URL, HERMES_WEB_TOKEN } from '../config/hermes';
+import { HERMES_WS_URL, getHermesWebToken } from '../config/hermes';
 import { GatewayEvent, JsonRpcRequest, JsonRpcResponse } from '../types/hermes';
 
 type EventCallback = (event: GatewayEvent) => void;
@@ -18,6 +18,7 @@ class HermesTransport {
   private reconnectTimeout: number | null = null;
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
+  private connectionAttemptId = 0;
   private isConnecting = false;
   private explicitlyClosed = false;
 
@@ -41,15 +42,23 @@ class HermesTransport {
     this.isConnecting = true;
     this.notifyStatus('connecting');
 
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
+      const attemptId = this.connectionAttemptId + 1;
+      this.connectionAttemptId = attemptId;
       try {
-        const tokenParam = HERMES_WEB_TOKEN ? `?token=${encodeURIComponent(HERMES_WEB_TOKEN)}` : '';
+        const token = await getHermesWebToken();
+        if (attemptId !== this.connectionAttemptId || this.explicitlyClosed) {
+          this.isConnecting = false;
+          return;
+        }
+        const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
         const url = `${HERMES_WS_URL}${tokenParam}`;
         
         console.log(`Connecting to Hermes WebSocket: ${HERMES_WS_URL}`);
         this.ws = new WebSocket(url);
 
         this.ws.onopen = () => {
+          if (attemptId !== this.connectionAttemptId) return;
           console.log('Hermes WebSocket connected.');
           this.isConnecting = false;
           this.reconnectDelay = 1000;
@@ -58,10 +67,12 @@ class HermesTransport {
         };
 
         this.ws.onmessage = (event) => {
+          if (attemptId !== this.connectionAttemptId) return;
           this.handleMessage(event.data);
         };
 
         this.ws.onclose = (event) => {
+          if (attemptId !== this.connectionAttemptId) return;
           console.log(`Hermes WebSocket closed. Code: ${event.code}, Clean: ${event.wasClean}`);
           this.isConnecting = false;
           this.ws = null;
@@ -73,6 +84,7 @@ class HermesTransport {
         };
 
         this.ws.onerror = (err) => {
+          if (attemptId !== this.connectionAttemptId) return;
           console.error('Hermes WebSocket error:', err);
           this.isConnecting = false;
           reject(err);
@@ -86,6 +98,7 @@ class HermesTransport {
 
   public disconnect() {
     this.explicitlyClosed = true;
+    this.connectionAttemptId += 1;
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
