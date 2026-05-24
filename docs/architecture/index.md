@@ -26,12 +26,12 @@ Cross-cutting concerns enter through explicit provider interfaces.
   - [state/hermesEventReducer.ts](../../src/state/hermesEventReducer.ts): Pure event reducer for sessions, chat messages, tool lifecycle, thinking/reasoning, blocking prompts, voice, browser progress, and errors.
   - [hooks/useHermes.ts](../../src/hooks/useHermes.ts): Compatibility facade consumed by the app; maps old thread/run names onto Hermes sessions while exposing connection, blocking prompt, and session actions.
   - [components/dialogs](../../src/components/dialogs): Focused Hermes sheets for sessions, control center, and blocking prompts.
-  - [components/MarkdownMessage.tsx](../../src/components/MarkdownMessage.tsx): Compact chat Markdown renderer with expandable heavy blocks.
+  - [components/MarkdownMessage.tsx](../../src/components/MarkdownMessage.tsx): Compact chat Markdown renderer with expandable heavy blocks; supports reduced-motion plain text rendering for long-session phone performance.
   - [components/VirtualMessage.tsx](../../src/components/VirtualMessage.tsx): Viewport virtualization for older chat messages.
   - [components/UsageWidget.tsx](../../src/components/UsageWidget.tsx): Legacy usage status component; current app also fetches usage directly for the compact composer pill.
   - [components/SettingsModal.tsx](../../src/components/SettingsModal.tsx): Legacy settings/model sheet not currently mounted by `App.tsx`.
-  - [App.tsx](../../src/App.tsx): Primary Fi iOS PWA shell, chat timeline, compact composer, menu, sessions dialog, control center, notifications, blocking prompts, and usage pill.
-  - [index.css](../../src/index.css): Design systems & tailwind v4 styles.
+  - [App.tsx](../../src/App.tsx): Primary Fi iOS PWA shell, chat timeline, compact composer, menu, sessions dialog, control center, appearance settings, notifications, blocking prompts, and usage pill.
+  - [index.css](../../src/index.css): Design systems & tailwind v4 styles, including Less Animation and Terminal appearance modes.
 - [tests](../../tests): Fixture directory for Hermes reducer/event smoke checks.
 - [config](../../config): Environment contract and security notes.
 - [scripts/check-hermes-events.ts](../../scripts/check-hermes-events.ts): Bun smoke checks for reducer/event fixtures.

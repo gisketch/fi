@@ -5,6 +5,7 @@ import { Code, Table2, X } from 'lucide-react';
 
 interface MarkdownMessageProps {
   content: string;
+  reduceMotion?: boolean;
 }
 
 type TextBlock = { type: 'text'; lines: string[] };
@@ -81,7 +82,10 @@ const parseBlocks = (content: string): Block[] => {
   return blocks;
 };
 
-const renderAnimatedText = (text: string, keyPrefix: string): ReactNode[] =>
+const renderAnimatedText = (text: string, keyPrefix: string, reduceMotion: boolean): ReactNode[] => {
+  if (reduceMotion) return [text];
+
+  return (
   Array.from(text).map((char, index) => (
     <motion.span
       key={`${keyPrefix}-char-${index}`}
@@ -91,9 +95,11 @@ const renderAnimatedText = (text: string, keyPrefix: string): ReactNode[] =>
     >
       {char}
     </motion.span>
-  ));
+  ))
+  );
+};
 
-const renderInlineMarkdown = (text: string, keyPrefix: string): ReactNode[] => {
+const renderInlineMarkdown = (text: string, keyPrefix: string, reduceMotion: boolean): ReactNode[] => {
   const parts: ReactNode[] = [];
   const pattern = /(\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_)/g;
   let lastIndex = 0;
@@ -101,7 +107,7 @@ const renderInlineMarkdown = (text: string, keyPrefix: string): ReactNode[] => {
 
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(...renderAnimatedText(text.slice(lastIndex, match.index), `${keyPrefix}-${lastIndex}`));
+      parts.push(...renderAnimatedText(text.slice(lastIndex, match.index), `${keyPrefix}-${lastIndex}`, reduceMotion));
     }
 
     const token = match[0];
@@ -148,15 +154,15 @@ const renderInlineMarkdown = (text: string, keyPrefix: string): ReactNode[] => {
   }
 
   if (lastIndex < text.length) {
-    parts.push(...renderAnimatedText(text.slice(lastIndex), `${keyPrefix}-${lastIndex}`));
+    parts.push(...renderAnimatedText(text.slice(lastIndex), `${keyPrefix}-${lastIndex}`, reduceMotion));
   }
 
   return parts;
 };
 
-const renderInline = (text: string, keyPrefix: string) => renderInlineMarkdown(text, keyPrefix);
+const renderInline = (text: string, keyPrefix: string, reduceMotion: boolean) => renderInlineMarkdown(text, keyPrefix, reduceMotion);
 
-const renderTextLine = (line: string, key: string) => {
+const renderTextLine = (line: string, key: string, reduceMotion: boolean) => {
   if (!line.trim()) {
     return <div key={key} className="h-3" />;
   }
@@ -166,7 +172,7 @@ const renderTextLine = (line: string, key: string) => {
     const weight = heading[1].length <= 2 ? 'font-semibold text-zinc-100' : 'font-medium text-zinc-200';
     return (
       <div key={key} className={`${weight} mt-3 first:mt-0 break-words`}>
-        {renderInline(heading[2], key)}
+        {renderInline(heading[2], key, reduceMotion)}
       </div>
     );
   }
@@ -175,7 +181,7 @@ const renderTextLine = (line: string, key: string) => {
   if (quote) {
     return (
       <div key={key} className="my-2 border-l border-white/10 pl-3 text-zinc-400 break-words">
-        {renderInline(quote[1], key)}
+        {renderInline(quote[1], key, reduceMotion)}
       </div>
     );
   }
@@ -185,7 +191,7 @@ const renderTextLine = (line: string, key: string) => {
     return (
       <div key={key} className="flex gap-2 break-words">
         <span className="mt-[0.05em] text-zinc-600">•</span>
-        <span className="min-w-0 break-words">{renderInline(unordered[1], key)}</span>
+        <span className="min-w-0 break-words">{renderInline(unordered[1], key, reduceMotion)}</span>
       </div>
     );
   }
@@ -195,7 +201,7 @@ const renderTextLine = (line: string, key: string) => {
     return (
       <div key={key} className="flex gap-2 break-words">
         <span className="text-zinc-600">{ordered[1]}.</span>
-        <span className="min-w-0 break-words">{renderInline(ordered[2], key)}</span>
+        <span className="min-w-0 break-words">{renderInline(ordered[2], key, reduceMotion)}</span>
       </div>
     );
   }
@@ -206,14 +212,14 @@ const renderTextLine = (line: string, key: string) => {
 
   return (
     <div key={key} className="break-words [overflow-wrap:anywhere]">
-      {renderInline(line, key)}
+      {renderInline(line, key, reduceMotion)}
     </div>
   );
 };
 
-const renderTextBlock = (block: TextBlock, blockIndex: number) => (
+const renderTextBlock = (block: TextBlock, blockIndex: number, reduceMotion: boolean) => (
   <div key={`text-${blockIndex}`} className="space-y-1 break-words [overflow-wrap:anywhere]">
-    {block.lines.map((line, lineIndex) => renderTextLine(line, `text-${blockIndex}-${lineIndex}`))}
+    {block.lines.map((line, lineIndex) => renderTextLine(line, `text-${blockIndex}-${lineIndex}`, reduceMotion))}
   </div>
 );
 
@@ -267,7 +273,7 @@ const renderCodePreview = (block: CodeBlock) => (
   </pre>
 );
 
-const renderTablePreview = (block: TableBlock) => {
+const renderTablePreview = (block: TableBlock, reduceMotion: boolean) => {
   const [head, ...body] = block.rows;
 
   return (
@@ -277,7 +283,7 @@ const renderTablePreview = (block: TableBlock) => {
           <tr>
             {head.map((cell, index) => (
               <th key={index} className="sticky top-0 border-b border-white/[0.06] bg-neutral-950 px-3 py-2 text-left font-medium text-zinc-100 align-top">
-                {renderInline(cell, `preview-h-${index}`)}
+                {renderInline(cell, `preview-h-${index}`, reduceMotion)}
               </th>
             ))}
           </tr>
@@ -287,7 +293,7 @@ const renderTablePreview = (block: TableBlock) => {
             <tr key={rowIndex} className="border-b border-white/[0.035] last:border-0">
               {head.map((_, cellIndex) => (
                 <td key={cellIndex} className="max-w-[240px] px-3 py-2 align-top text-neutral-400 break-words [overflow-wrap:anywhere]">
-                  {renderInline(row[cellIndex] || '', `preview-${rowIndex}-${cellIndex}`)}
+                  {renderInline(row[cellIndex] || '', `preview-${rowIndex}-${cellIndex}`, reduceMotion)}
                 </td>
               ))}
             </tr>
@@ -298,7 +304,7 @@ const renderTablePreview = (block: TableBlock) => {
   );
 };
 
-const MarkdownPreviewDialog = ({ preview, onClose }: { preview: PreviewState; onClose: () => void }) => (
+const MarkdownPreviewDialog = ({ preview, onClose, reduceMotion }: { preview: PreviewState; onClose: () => void; reduceMotion: boolean }) => (
   <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 px-4 backdrop-blur-xl" onClick={onClose}>
     <div
       role="dialog"
@@ -316,12 +322,12 @@ const MarkdownPreviewDialog = ({ preview, onClose }: { preview: PreviewState; on
           <X className="h-4 w-4" />
         </button>
       </div>
-      {preview.block.type === 'code' ? renderCodePreview(preview.block) : renderTablePreview(preview.block)}
+      {preview.block.type === 'code' ? renderCodePreview(preview.block) : renderTablePreview(preview.block, reduceMotion)}
     </div>
   </div>
 );
 
-export const MarkdownMessage = memo(function MarkdownMessage({ content }: MarkdownMessageProps) {
+export const MarkdownMessage = memo(function MarkdownMessage({ content, reduceMotion = false }: MarkdownMessageProps) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const blocks = parseBlocks(content);
 
@@ -330,14 +336,14 @@ export const MarkdownMessage = memo(function MarkdownMessage({ content }: Markdo
       <div className="w-full max-w-full space-y-2 break-words [overflow-wrap:anywhere]">
         {blocks.map((block, index) => (
           <Fragment key={index}>
-            {block.type === 'text' && renderTextBlock(block, index)}
+            {block.type === 'text' && renderTextBlock(block, index, reduceMotion)}
             {block.type === 'code' && renderCodeCard(block, index, setPreview)}
             {block.type === 'table' && renderTableCard(block, index, setPreview)}
           </Fragment>
         ))}
       </div>
       {preview && createPortal(
-        <MarkdownPreviewDialog preview={preview} onClose={() => setPreview(null)} />,
+        <MarkdownPreviewDialog preview={preview} onClose={() => setPreview(null)} reduceMotion={reduceMotion} />,
         document.body
       )}
     </>
