@@ -15,7 +15,6 @@ type HermesRuntimeConfig = {
 let runtimeConfigPromise: Promise<HermesRuntimeConfig | null> | null = null;
 
 export const getHermesWebToken = async () => {
-  if (HERMES_WEB_TOKEN) return HERMES_WEB_TOKEN;
   if (typeof window === 'undefined') return HERMES_WEB_TOKEN;
 
   runtimeConfigPromise ||= fetch('/runtime-api/hermes-config', { cache: 'no-store' })
