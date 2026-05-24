@@ -1,10 +1,11 @@
 import { lazy, memo, Suspense, useState, useRef, useEffect } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { useHermes } from './hooks/useHermes';
 import type { ToolActivity, ChatMessage, ChatSegment } from './hooks/useHermes';
 import { getUsageData, UsageData } from './services/api';
 import HermesGateway from './services/hermesGateway';
 import { HermesRestClient } from './services/hermesRest';
+import { TerminalGatewayClient, terminalStorage } from './services/terminalGateway';
 import { StoredSession, Usage } from './types/hermes';
 import { SessionsDialog } from './components/dialogs/SessionsDialog';
 import { ControlCenterDialog } from './components/dialogs/ControlCenterDialog';
@@ -17,7 +18,7 @@ import {
   Code
 } from '@solar-icons/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Coins, Copy, Gauge, Layers, Menu, Terminal, X, Brain, Cpu } from 'lucide-react';
+import { Check, Coins, Copy, Gauge, KeyRound, Layers, Menu, Terminal, X, Brain, Cpu } from 'lucide-react';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { VirtualMessage } from './components/VirtualMessage';
 import {
@@ -31,6 +32,111 @@ import type { ToolTraceGroup } from './utils/toolTrace';
 const TerminalDialog = lazy(() =>
   import('./components/dialogs/TerminalDialog').then((module) => ({ default: module.TerminalDialog }))
 );
+
+const AppPinGate = ({ children }: { children: ReactNode }) => {
+  const [pin, setPin] = useState('');
+  const [checking, setChecking] = useState(true);
+  const [unlocked, setUnlocked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const verify = async () => {
+      const token = terminalStorage.getToken();
+      if (!token) {
+        setChecking(false);
+        return;
+      }
+
+      const ok = await TerminalGatewayClient.verify(token);
+      if (cancelled) return;
+
+      setUnlocked(ok);
+      setChecking(false);
+      if (!ok) terminalStorage.clearToken();
+    };
+
+    void verify();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const unlock = async () => {
+    if (!pin.trim()) return;
+
+    setError(null);
+    setChecking(true);
+    try {
+      const res = await TerminalGatewayClient.unlock(pin.trim());
+      terminalStorage.setToken(res.token);
+      setUnlocked(true);
+      setPin('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Invalid PIN');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void unlock();
+    }
+  };
+
+  if (checking && !unlocked) {
+    return (
+      <div className="flex h-full items-center justify-center bg-black text-white">
+        <div className="font-mono text-[11px] uppercase tracking-wider text-neutral-600">Checking Fi access...</div>
+      </div>
+    );
+  }
+
+  if (unlocked) return <>{children}</>;
+
+  return (
+    <div className="flex h-full items-center justify-center bg-black px-6 text-white safe-pt">
+      <div className="w-full max-w-sm">
+        <div className="mb-8">
+          <div className="font-serif-hermes text-[42px] font-bold tracking-tight text-zinc-100">Fi</div>
+          <div className="mt-1 font-serif-hermes text-[15px] italic text-neutral-600">locked</div>
+        </div>
+
+        <div className="rounded-[24px] border border-white/[0.08] bg-neutral-950/90 p-3">
+          <div className="flex items-center gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-3">
+            <KeyRound className="h-4 w-4 shrink-0 text-neutral-600" />
+            <input
+              value={pin}
+              onChange={(event) => setPin(event.target.value)}
+              onKeyDown={handleKeyDown}
+              type="password"
+              inputMode="numeric"
+              autoFocus
+              placeholder="PIN"
+              className="min-w-0 flex-1 bg-transparent font-mono text-[16px] tracking-[0.28em] text-zinc-100 outline-none placeholder:text-neutral-700"
+            />
+            <button
+              type="button"
+              onClick={() => void unlock()}
+              disabled={!pin.trim() || checking}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black disabled:bg-neutral-850 disabled:text-neutral-600 active:scale-95"
+              aria-label="Unlock Fi"
+            >
+              <Check className="h-4 w-4" />
+            </button>
+          </div>
+          {error && (
+            <div className="mt-3 px-2 font-mono text-[11px] text-red-300/75">{error}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const getDeepSeekBalance = (usage: UsageData) => {
   const total = usage.deepseek?.total;
@@ -713,7 +819,7 @@ const AppearanceDialog = ({ settings, onChange, onClose }: {
 
 
 
-export default function App() {
+function AppShell() {
   const {
     messages,
     isRunning,
@@ -1770,5 +1876,13 @@ export default function App() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AppPinGate>
+      <AppShell />
+    </AppPinGate>
   );
 }

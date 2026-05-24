@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
 import { motion } from 'framer-motion';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Check, KeyRound, Monitor, Plug, RefreshCw, Save, Server, X } from 'lucide-react';
+import { KeyRound, Monitor, Plug, RefreshCw, Save, Server, X } from 'lucide-react';
 import {
   TerminalGatewayClient,
   defaultTerminalProfile,
@@ -30,7 +29,6 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
   const wsRef = useRef<WebSocket | null>(null);
   const autoConnectRef = useRef(false);
 
-  const [pin, setPin] = useState('');
   const [token, setToken] = useState(() => terminalStorage.getToken());
   const [tokenReady, setTokenReady] = useState(false);
   const [profile, setProfile] = useState<TerminalSshProfile>(() => terminalStorage.getProfile());
@@ -45,7 +43,7 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
     const verify = async () => {
       if (!token) {
         setTokenReady(false);
-        setStatus('PIN required');
+        setStatus('App PIN required');
         return;
       }
 
@@ -54,12 +52,12 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
 
       if (ok) {
         setTokenReady(true);
-        setStatus('Terminal unlocked');
+        setStatus('Unlocked by app PIN');
       } else {
         terminalStorage.clearToken();
         setToken('');
         setTokenReady(false);
-        setStatus('PIN expired');
+        setStatus('App PIN expired');
       }
     };
 
@@ -149,26 +147,6 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
     xtermRef.current?.writeln(line);
   };
 
-  const handleUnlock = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!pin.trim()) return;
-
-    setError(null);
-    setStatus('Unlocking terminal...');
-
-    try {
-      const res = await TerminalGatewayClient.unlock(pin.trim());
-      terminalStorage.setToken(res.token);
-      setToken(res.token);
-      setPin('');
-      setTokenReady(true);
-      setStatus('Terminal unlocked');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to unlock terminal');
-      setStatus('PIN required');
-    }
-  };
-
   const handleSaveProfile = () => {
     const next = normalizeProfile(profile);
     terminalStorage.setProfile(next);
@@ -189,21 +167,22 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
     setProfile(nextProfile);
     setError(null);
     setConnecting(true);
-    setStatus('Connecting terminal...');
+    setStatus('Opening gateway socket...');
 
     const xterm = xtermRef.current;
     const fit = fitRef.current;
     fit?.fit();
     xterm?.clear();
-    writeLine(`Connecting to ${nextProfile.user}@${nextProfile.host}:${nextProfile.port}...`);
+    writeLine(`[fi] opening gateway socket`);
+    writeLine(`[fi] target ${nextProfile.user}@${nextProfile.host}:${nextProfile.port}`);
 
     const ws = new WebSocket(TerminalGatewayClient.terminalWsUrl(token));
     wsRef.current = ws;
 
     ws.onopen = () => {
-      setConnected(true);
-      setConnecting(false);
-      setStatus('Terminal connected');
+      setStatus('Gateway connected, starting SSH...');
+      writeLine('[fi] gateway connected');
+      writeLine('[fi] starting SSH shell...');
       ws.send(JSON.stringify({
         type: 'connect',
         host: nextProfile.host,
@@ -224,12 +203,20 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
           return;
         }
         if (frame.type === 'status') {
-          setStatus(String(frame.message || 'Terminal status'));
+          const message = String(frame.message || 'Terminal status');
+          setStatus(message);
+          writeLine(`[gateway] ${message}`);
+          if (message.toLowerCase() === 'connected') {
+            setConnected(true);
+            setConnecting(false);
+          }
           return;
         }
         if (frame.type === 'error') {
           const message = String(frame.message || 'Terminal error');
           setError(message);
+          setConnected(false);
+          setConnecting(false);
           writeLine(`\r\n[error] ${message}`);
         }
       } catch {
@@ -239,13 +226,16 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
 
     ws.onerror = () => {
       setError('Terminal WebSocket error');
+      writeLine('\r\n[error] terminal websocket error');
+      setConnected(false);
       setConnecting(false);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setConnected(false);
       setConnecting(false);
       setStatus('Terminal disconnected');
+      writeLine(`\r\n[fi] terminal disconnected (${event.code || 'closed'})`);
     };
   };
 
@@ -262,7 +252,7 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
     terminalStorage.clearToken();
     setToken('');
     setTokenReady(false);
-    setStatus('PIN required');
+    setStatus('App PIN required');
   };
 
   const resetProfile = () => {
@@ -302,25 +292,13 @@ export const TerminalDialog = ({ onClose }: TerminalDialogProps) => {
         </div>
 
         <div className="grid shrink-0 gap-2 border-b border-white/[0.06] p-3 md:grid-cols-[0.8fr_1.2fr_auto]">
-          <form onSubmit={handleUnlock} className="flex min-w-0 items-center gap-2 rounded-2xl border border-white/[0.06] bg-white/[0.025] px-2 py-2">
+          <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-2">
             <KeyRound className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
-            <input
-              value={pin}
-              onChange={(event) => setPin(event.target.value)}
-              type="password"
-              inputMode="numeric"
-              placeholder={tokenReady ? 'Unlocked' : 'PIN'}
-              className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-zinc-200 outline-none placeholder:text-neutral-700"
-            />
-            <button
-              type="submit"
-              disabled={!pin.trim()}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-black disabled:bg-neutral-800 disabled:text-neutral-600"
-              aria-label="Unlock terminal"
-            >
-              <Check className="h-3.5 w-3.5" />
-            </button>
-          </form>
+            <div className="min-w-0">
+              <div className="font-mono text-[10px] uppercase tracking-wider text-neutral-600">App access</div>
+              <div className="truncate font-mono text-[12px] text-zinc-300">{tokenReady ? 'Unlocked' : 'Locked'}</div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-[1fr_76px_0.75fr] gap-2 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-2">
             <label className="flex min-w-0 items-center gap-2">

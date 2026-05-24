@@ -38,7 +38,9 @@ PUSH_API_TOKEN=<server-to-server bearer token>
 
 Do not commit `.env`; import/set these in Netlify.
 
-## Terminal Gateway
+## App PIN And Terminal Gateway
+
+Fi uses the terminal gateway PIN as the whole-app browser lock. The app verifies the saved gateway token before rendering Hermes chat, so Hermes does not auto-connect until the PIN gate passes.
 
 The in-app terminal is separate from Hermes. Browser code talks to the private terminal gateway:
 
@@ -50,10 +52,10 @@ WS   wss://fi-terminal.gisketch.com/terminal
 
 Browser storage:
 
-- `fi_terminal_gateway_token`: JWT returned by the terminal gateway after PIN unlock.
+- `fi_terminal_gateway_token`: JWT returned by the terminal gateway after whole-app PIN unlock.
 - `fi_terminal_ssh_profile`: local SSH host, port, user, and password profile.
 
-The PIN itself is not stored. SSH credentials stay browser-local until the user opens a terminal session, then they are sent directly to the terminal gateway WebSocket.
+The PIN itself is not stored. The terminal dialog reuses the app unlock token and does not ask for a second PIN. SSH credentials stay browser-local until the user opens a terminal session, then they are sent directly to the terminal gateway WebSocket.
 
 ## Push API
 
