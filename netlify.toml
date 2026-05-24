@@ -11,12 +11,6 @@ directory = "netlify/functions"
 node_bundler = "esbuild"
 
 [[redirects]]
-from = "/api/ws"
-to = "https://fi.gisketch.com/api/ws"
-status = 200
-force = true
-
-[[redirects]]
 from = "/api/*"
 to = "https://fi.gisketch.com/:splat"
 status = 200
