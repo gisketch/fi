@@ -1,6 +1,9 @@
 // Configuration file reading VITE_HERMES environment variables.
 
-const rawApiUrl = import.meta.env.VITE_HERMES_API_URL || import.meta.env.VITE_API_URL || 'https://fi.gisketch.com';
+const isFiWebOrigin = typeof window !== 'undefined' && window.location.hostname === 'fi-web.gisketch.com';
+const rawApiUrl = isFiWebOrigin
+  ? '/api'
+  : import.meta.env.VITE_HERMES_API_URL || import.meta.env.VITE_API_URL || 'https://fi.gisketch.com';
 // Strip trailing slash if present
 export const HERMES_API_URL = rawApiUrl.replace(/\/$/, '');
 
