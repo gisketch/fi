@@ -27,9 +27,22 @@ export interface HermesMessage {
 }
 
 export interface Usage {
-  input: number;
-  output: number;
-  total: number;
+  input?: number;
+  output?: number;
+  total?: number;
+  model?: string;
+  cache_read?: number;
+  cache_write?: number;
+  reasoning?: number | string;
+  prompt?: number;
+  completion?: number;
+  calls?: number;
+  context_used?: number;
+  context_max?: number;
+  context_percent?: number;
+  compressions?: number;
+  cost_usd?: number;
+  [key: string]: unknown;
 }
 
 export interface JsonRpcRequest {

@@ -7,6 +7,7 @@ dist/
 build/
 coverage/
 refs/
+.playwright-cli/
 
 # sonata:block=context-tools:start
 # Local agent/runtime noise

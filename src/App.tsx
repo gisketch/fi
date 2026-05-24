@@ -3,7 +3,7 @@ import type { KeyboardEvent } from 'react';
 import { useHermes, ToolActivity, ChatMessage, ChatSegment } from './hooks/useHermes';
 import { getUsageData, UsageData } from './services/api';
 import HermesGateway from './services/hermesGateway';
-import { StoredSession } from './types/hermes';
+import { StoredSession, Usage } from './types/hermes';
 import { SessionsDialog } from './components/dialogs/SessionsDialog';
 import { ControlCenterDialog } from './components/dialogs/ControlCenterDialog';
 import { BlockingPromptsDialog } from './components/dialogs/BlockingPromptsDialog';
@@ -15,7 +15,7 @@ import {
   Code
 } from '@solar-icons/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Coins, Copy, Layers, Menu, X, Brain } from 'lucide-react';
+import { Coins, Copy, Layers, Menu, X, Brain, Cpu } from 'lucide-react';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { VirtualMessage } from './components/VirtualMessage';
 
@@ -84,6 +84,25 @@ const getWeeklyCodexLimit = (usage: UsageData) => {
   const percent = usage.codex?.weekly?.used_percent ?? usage.codex?.week?.used_percent;
   return typeof percent === 'number' ? `${percent}%` : '--%';
 };
+
+const reasoningOptions = ['auto', 'medium', 'high', 'low', 'none'];
+
+const formatModelName = (model?: string) => {
+  if (!model) return 'model';
+  const shortName = model.includes('/') ? model.split('/').pop() || model : model;
+  return shortName.replace(/[-_]+/g, ' ');
+};
+
+const getContextPercent = (usage: Usage | null) => {
+  if (!usage) return null;
+  if (typeof usage.context_percent === 'number') return Math.round(usage.context_percent);
+  if (typeof usage.context_used === 'number' && typeof usage.context_max === 'number' && usage.context_max > 0) {
+    return Math.round((usage.context_used / usage.context_max) * 100);
+  }
+  return null;
+};
+
+const clampPercent = (value: number | null) => Math.max(0, Math.min(100, value ?? 0));
 
 const isMobileKeyboard = () => {
   if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
@@ -364,6 +383,10 @@ const ChatMessageItem = memo(({ msg, onOpenTools }: { msg: ChatMessage; onOpenTo
     );
   }
 
+  if (!msg.segments.length && !msg.content && msg.status !== 'running') {
+    return null;
+  }
+
   return (
     <motion.div 
       {...chatEntrance}
@@ -444,11 +467,16 @@ export default function App() {
     blockingRequests,
     resolveBlockingRequest,
     resumeSession,
+    sessionInfo,
   } = useHermes();
   const [inputValue, setInputValue] = useState('');
-  const selectedModel = 'deepseek-v4-flash';
+  const [selectedModel, setSelectedModel] = useState('deepseek-v4-flash');
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [footerPicker, setFooterPicker] = useState<'model' | 'reasoning' | null>(null);
   const [isPromptExpanded, setIsPromptExpanded] = useState(false);
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [sessionUsage, setSessionUsage] = useState<Usage | null>(null);
+  const [reasoningLevel, setReasoningLevel] = useState<string>('auto');
   const [toolDialogTools, setToolDialogTools] = useState<ToolActivity[] | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
@@ -475,6 +503,46 @@ export default function App() {
     };
     fetchUsage();
   }, [messages]);
+
+  useEffect(() => {
+    if (!currentThreadId) {
+      setSessionUsage(null);
+    }
+
+    let cancelled = false;
+
+    const fetchSessionDetails = async () => {
+      try {
+        const [usageRes, reasoningRes] = await Promise.all([
+          currentThreadId ? HermesGateway.getUsage(currentThreadId).catch(() => null) : Promise.resolve(null),
+          HermesGateway.getConfig('reasoning', currentThreadId || undefined).catch(() => null),
+        ]);
+        if (cancelled) return;
+
+        const nextUsage = ((usageRes as any)?.usage || usageRes) as Usage | null;
+        if (nextUsage) {
+          setSessionUsage(nextUsage);
+          if (nextUsage.model) setSelectedModel(nextUsage.model);
+        }
+
+        const reasoning = (reasoningRes as any)?.value
+          ?? (reasoningRes as any)?.reasoning
+          ?? (reasoningRes as any)?.config?.reasoning
+          ?? (reasoningRes as any)?.config?.value;
+        if (reasoning !== undefined && reasoning !== null) {
+          setReasoningLevel(String(reasoning));
+        }
+      } catch {
+        // Keep stale session details rather than disturbing prompt input.
+      }
+    };
+
+    void fetchSessionDetails();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentThreadId, messages.length, isRunning, connectionStatus]);
 
   // Auto-scroll to bottom of chat
   useEffect(() => {
@@ -539,10 +607,53 @@ export default function App() {
     syncTextareaHeight();
   }, [inputValue, isPromptExpanded]);
 
+  const loadModelOptions = async () => {
+    try {
+      const res = await HermesGateway.getModelOptions(currentThreadId || undefined);
+      const providers = Array.isArray((res as any)?.providers) ? (res as any).providers : [];
+      const models = providers
+        .flatMap((provider: any) => Array.isArray(provider?.models) ? provider.models : [])
+        .map((model: unknown) => String(model))
+        .filter(Boolean);
+      setModelOptions(Array.from(new Set(models)));
+    } catch {
+      setModelOptions([]);
+    }
+  };
+
+  const toggleFooterPicker = (picker: 'model' | 'reasoning') => {
+    setFooterPicker((current) => {
+      const next = current === picker ? null : picker;
+      if (next === 'model') void loadModelOptions();
+      return next;
+    });
+  };
+
+  const handleSelectFooterModel = async (model: string) => {
+    setSelectedModel(model);
+    setFooterPicker(null);
+    try {
+      await HermesGateway.setConfig('model', model, currentThreadId || undefined);
+    } catch (e) {
+      console.warn('Failed to set model:', e);
+    }
+  };
+
+  const handleSelectFooterReasoning = async (reasoning: string) => {
+    setReasoningLevel(reasoning);
+    setFooterPicker(null);
+    try {
+      await HermesGateway.setConfig('reasoning', reasoning, currentThreadId || undefined);
+    } catch (e) {
+      console.warn('Failed to set reasoning:', e);
+    }
+  };
+
   const handleSend = () => {
     if (!inputValue.trim() || isRunning) return;
     sendMessage(inputValue, selectedModel);
     setInputValue('');
+    setFooterPicker(null);
     setIsPromptExpanded(false); // Collapse after sending
   };
 
@@ -649,9 +760,16 @@ export default function App() {
     }
   };
 
+  const modelLabel = formatModelName(
+    selectedModel
+      || (typeof sessionInfo?.model === 'string' ? sessionInfo.model : undefined)
+      || sessionUsage?.model
+  );
+  const contextPercent = getContextPercent(sessionUsage);
+  const contextRingPercent = clampPercent(contextPercent);
 
   return (
-    <div className="flex flex-col h-full bg-black text-white safe-pt safe-pb select-none overflow-hidden relative font-sans-hermes">
+    <div className="flex flex-col h-full bg-black text-white safe-pt select-none overflow-hidden relative font-sans-hermes">
       
       {/* Ultra-Minimalist Void Header */}
       <header className="w-full shrink-0 z-40 relative px-6 py-4 flex items-center justify-between border-b border-white/[0.015]">
@@ -868,6 +986,70 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {footerPicker && isPromptExpanded && (
+          <div className="fixed inset-0 z-[60] flex items-end justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+5.75rem)]">
+            <motion.div
+              aria-hidden="true"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.14 }}
+              onClick={() => setFooterPicker(null)}
+              className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+            />
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-label={footerPicker === 'model' ? 'Select model' : 'Select reasoning'}
+              initial={{ opacity: 0, y: 12, scale: 0.98, filter: 'blur(8px)' }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: 8, scale: 0.98, filter: 'blur(8px)' }}
+              transition={{ duration: 0.16 }}
+              className="relative w-full max-w-xl overflow-hidden rounded-[22px] border border-white/[0.07] bg-neutral-950/95 p-2 shadow-2xl"
+            >
+              {footerPicker === 'model' ? (
+                <div className="max-h-[48vh] overflow-y-auto no-scrollbar">
+                  {(modelOptions.length ? modelOptions : [selectedModel]).map((model) => (
+                    <button
+                      key={model}
+                      type="button"
+                      onClick={() => void handleSelectFooterModel(model)}
+                      className={`flex min-h-10 w-full items-center gap-2 rounded-2xl px-3 text-left font-mono text-[11px] uppercase tracking-wider ${
+                        selectedModel === model
+                          ? 'bg-white/[0.08] text-white'
+                          : 'text-neutral-500 active:bg-white/[0.04]'
+                      }`}
+                    >
+                      <Cpu className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
+                      <span className="truncate">{formatModelName(model)}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-1">
+                  {reasoningOptions.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => void handleSelectFooterReasoning(option)}
+                      className={`flex min-h-10 items-center gap-2 rounded-2xl px-3 font-mono text-[11px] uppercase tracking-wider ${
+                        reasoningLevel === option
+                          ? 'bg-white/[0.08] text-white'
+                          : 'text-neutral-500 active:bg-white/[0.04]'
+                      }`}
+                    >
+                      <Brain className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
+                      <span>{option}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Backdrop overlay for focus dismissal when input card is expanded */}
       <AnimatePresence>
         {isPromptExpanded && (
@@ -876,21 +1058,24 @@ export default function App() {
             animate={{ opacity: 0.8 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.22 }}
-            onClick={() => setIsPromptExpanded(false)}
+            onClick={() => {
+              setFooterPicker(null);
+              setIsPromptExpanded(false);
+            }}
             className="fixed inset-0 bg-black z-35 cursor-pointer"
           />
         )}
       </AnimatePresence>
 
       {/* Bottom Message Composition - Unified Single Container layout transition */}
-      <footer className="w-full shrink-0 px-4 pt-3 pb-0 sm:pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-transparent z-40 relative">
+      <footer className="w-full shrink-0 px-4 pt-2 pb-0 sm:pb-[calc(env(safe-area-inset-bottom)+0.25rem)] bg-transparent z-40 relative">
         <div className="max-w-xl mx-auto">
           
           <div
             className={`ethereal-card shadow-2xl relative mx-auto overflow-hidden rounded-[24px] ${
               isPromptExpanded 
-                ? 'max-w-xl p-4 sm:pb-5 z-40' 
-                : 'max-w-[240px] py-2.5 sm:pb-3.5 px-4 cursor-pointer hover:border-white/15 select-none active:scale-95'
+                ? 'max-w-xl px-4 pt-3 pb-2 sm:pb-2 z-40' 
+                : 'max-w-[240px] py-2.5 sm:pb-2.5 px-4 cursor-pointer hover:border-white/15 select-none active:scale-95'
             }`}
             onClick={!isPromptExpanded ? () => {
               setIsPromptExpanded(true);
@@ -930,7 +1115,7 @@ export default function App() {
 
             {/* MODE 2: Expanded Ethereal Card Content */}
             <div
-              className={`flex flex-col gap-3 w-full transition-all duration-200 ${
+              className={`flex flex-col gap-2.5 w-full transition-all duration-200 ${
                 isPromptExpanded ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none absolute inset-0 p-4'
               }`}
             >
@@ -947,8 +1132,39 @@ export default function App() {
                 style={{ height: '26px', userSelect: 'text', WebkitUserSelect: 'text', caretColor: '#fff', overflowWrap: 'break-word', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}
               />
 
-              {/* Bottom Toolbar - Only Send/Stop Action Button */}
-              <div className="flex items-center justify-end pt-1 select-none">
+              {/* Bottom Toolbar */}
+              <div className="flex min-h-8 items-center justify-between gap-3 select-none">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-wider text-neutral-500">
+                  <button
+                    type="button"
+                    onClick={() => toggleFooterPicker('model')}
+                    className="flex min-h-7 min-w-0 items-center gap-1.5 rounded-lg pr-1 text-left active:scale-[0.98]"
+                    title={`Model: ${modelLabel}`}
+                  >
+                    <Cpu className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
+                    <span className="max-w-[135px] truncate text-neutral-400">{modelLabel}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleFooterPicker('reasoning')}
+                    className="flex min-h-7 items-center gap-1.5 rounded-lg pr-1 active:scale-[0.98]"
+                    title={`Reasoning: ${reasoningLevel}`}
+                  >
+                    <Brain className="h-3.5 w-3.5 shrink-0 text-neutral-600" />
+                    <span className="text-neutral-400">{reasoningLevel}</span>
+                  </button>
+                  <span className="flex min-h-7 items-center gap-1.5" title="Context utilization">
+                    <span
+                      className="relative h-3.5 w-3.5 shrink-0 rounded-full"
+                      style={{
+                        background: `conic-gradient(rgba(245,245,245,0.82) ${contextRingPercent * 3.6}deg, rgba(255,255,255,0.12) 0deg)`,
+                      }}
+                    >
+                      <span className="absolute inset-[3px] rounded-full bg-neutral-950" />
+                    </span>
+                    <span className="text-neutral-400">{contextPercent ?? 0}%</span>
+                  </span>
+                </div>
                 
                 {/* Circular Action Button */}
                 {isRunning ? (

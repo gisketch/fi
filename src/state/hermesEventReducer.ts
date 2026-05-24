@@ -56,6 +56,21 @@ const appendDeltaToSegments = (segments: ChatSegment[], delta: string): ChatSegm
   return next;
 };
 
+const appendStreamingDelta = (existing: string, delta: string): string => {
+  if (!existing || !delta) return existing + delta;
+  if (existing.endsWith(delta)) return existing;
+  if (delta.startsWith(existing)) return delta;
+
+  const maxOverlap = Math.min(existing.length, delta.length);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (existing.endsWith(delta.slice(0, overlap))) {
+      return existing + delta.slice(overlap);
+    }
+  }
+
+  return existing + delta;
+};
+
 const appendThinkingToSegments = (segments: ChatSegment[], delta: string): ChatSegment[] => {
   const next = [...segments];
   const thinkingIndex = next.findIndex((s) => s.type === 'thinking');
@@ -63,7 +78,7 @@ const appendThinkingToSegments = (segments: ChatSegment[], delta: string): ChatS
   if (thinkingIndex !== -1) {
     const existing = next[thinkingIndex];
     if (existing.type === 'thinking') {
-      next[thinkingIndex] = { ...existing, content: existing.content + delta };
+      next[thinkingIndex] = { ...existing, content: appendStreamingDelta(existing.content, delta) };
     }
   } else {
     next.unshift({ id: makeId('thinking'), type: 'thinking', content: delta });
@@ -79,7 +94,6 @@ export function hermesEventReducer(state: HermesState, event: GatewayEvent): Her
     case 'session.resume_start':
       return {
         ...state,
-        activeSessionId: payload.sessionId,
         messages: [],
         isRunning: true,
         statusLine: "Resuming session...",
@@ -461,15 +475,18 @@ export function messagesFromHistory(messages: HermesMessage[], threadId?: string
     if (!m.role) continue;
     const isUser = m.role === 'user';
     const text = m.text || (typeof m.content === 'string' ? m.content : '');
+    const reasoning = m.reasoning || '';
+
+    if (!text && !reasoning) continue;
 
     const segments: ChatSegment[] = [];
     
     // Restore reasoning from database history
-    if (m.reasoning) {
+    if (reasoning) {
       segments.push({
         id: makeId('thinking'),
         type: 'thinking',
-        content: m.reasoning,
+        content: reasoning,
       });
     }
 
@@ -489,7 +506,7 @@ export function messagesFromHistory(messages: HermesMessage[], threadId?: string
       segments,
       status: 'completed',
       threadId,
-      reasoning: m.reasoning || undefined,
+      reasoning: reasoning || undefined,
     });
   }
 

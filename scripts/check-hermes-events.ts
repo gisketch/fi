@@ -1,4 +1,4 @@
-import { initialHermesState, hermesEventReducer } from '../src/state/hermesEventReducer';
+import { initialHermesState, hermesEventReducer, messagesFromHistory } from '../src/state/hermesEventReducer';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -137,6 +137,19 @@ function testBlockingRequests() {
 function testCustomActions() {
   console.log('Testing custom UI/Session actions...');
 
+  // Resume start should not mark a requested persisted id as active before
+  // the API returns the runtime session id.
+  let loadingState = hermesEventReducer(initialHermesState, {
+    type: 'session.resume_start',
+    payload: { sessionId: 'persisted-session-id' }
+  });
+  if (loadingState.activeSessionId !== null) {
+    throw new Error(`Expected resume_start to keep activeSessionId null, got: ${loadingState.activeSessionId}`);
+  }
+  if (!loadingState.isRunning || loadingState.statusLine !== 'Resuming session...') {
+    throw new Error('Expected resume_start to enter loading state');
+  }
+
   // 1. Test session.resume_success
   let state = hermesEventReducer(initialHermesState, {
     type: 'session.resume_success',
@@ -244,6 +257,26 @@ function testCustomActions() {
   console.log('✓ custom UI/Session actions test passed.');
 }
 
+function testHistoryConversionSkipsEmptyMessages() {
+  console.log('Testing history conversion skips empty messages...');
+  const messages = [
+    { role: 'user', text: 'hey' },
+    { role: 'assistant', text: '' },
+    { role: 'assistant', content: null },
+    { role: 'assistant', text: 'hello' },
+    { role: 'assistant', reasoning: 'checking' },
+  ];
+
+  const converted = messagesFromHistory(messages as any, 'session-1');
+  if (converted.length !== 3) {
+    throw new Error(`Expected 3 converted messages, got: ${converted.length}`);
+  }
+  if (converted.some((message) => !message.content && !message.segments.length)) {
+    throw new Error(`Expected no empty converted messages, got: ${JSON.stringify(converted)}`);
+  }
+  console.log('✓ history empty-message filtering test passed.');
+}
+
 function testReasoningDeltaStream() {
   console.log('Testing reasoning.delta stream reducer...');
   let state = { ...initialHermesState };
@@ -281,15 +314,59 @@ function testReasoningDeltaStream() {
   console.log('✓ reasoning.delta stream test passed.');
 }
 
+function testReasoningDeltaDedupe() {
+  console.log('Testing duplicated reasoning delta normalization...');
+  let state = { ...initialHermesState };
+  state.messages = [
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '',
+      tools: [],
+      segments: [],
+      status: 'running',
+    }
+  ];
+
+  state = hermesEventReducer(state, {
+    type: 'thinking.delta',
+    payload: { text: 'Actually,' }
+  });
+  state = hermesEventReducer(state, {
+    type: 'reasoning.delta',
+    payload: { text: 'Actually,' }
+  });
+  state = hermesEventReducer(state, {
+    type: 'reasoning.delta',
+    payload: { text: 'Actually, let me check' }
+  });
+  state = hermesEventReducer(state, {
+    type: 'thinking.delta',
+    payload: { text: ' check quickly.' }
+  });
+
+  const lastMsg = state.messages[0];
+  const thinkingSegment = lastMsg.segments.find(s => s.type === 'thinking');
+  if (!thinkingSegment) {
+    throw new Error('Expected a thinking segment to exist');
+  }
+  if (thinkingSegment.content !== 'Actually, let me check quickly.') {
+    throw new Error(`Expected normalized reasoning content, got: ${thinkingSegment.content}`);
+  }
+  console.log('✓ duplicated reasoning delta normalization test passed.');
+}
+
 function runAll() {
   try {
     testGatewayReady();
     testMessageStream();
     testReasoningDeltaStream();
+    testReasoningDeltaDedupe();
     testToolLifecycle();
     testToolNameFallback();
     testBlockingRequests();
     testCustomActions();
+    testHistoryConversionSkipsEmptyMessages();
     console.log('\nAll pure event reducer smoke tests passed!');
   } catch (err: any) {
     console.error('\nSmoke tests failed:', err.message);

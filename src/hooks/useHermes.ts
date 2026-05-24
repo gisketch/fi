@@ -69,7 +69,7 @@ export function useHermes() {
     // Try to restore previous session from localStorage
     const savedSessionId = localStorage.getItem('hermes_active_session_id');
     if (savedSessionId) {
-      void resumeSession(savedSessionId);
+      void resumeSession(savedSessionId).catch(() => undefined);
     }
 
     return () => {
@@ -83,15 +83,16 @@ export function useHermes() {
 
     try {
       const res = await HermesGateway.resumeSession(sessionId);
+      const activeSessionId = res.session_id || res.resumed || sessionId;
       
       // Convert history messages
-      const historyMessages = messagesFromHistory(res.messages || [], sessionId);
+      const historyMessages = messagesFromHistory(res.messages || [], activeSessionId);
       
       // Sync to local state purely
       dispatch({
         type: 'session.resume_success',
         payload: {
-          sessionId,
+          sessionId: activeSessionId,
           messages: historyMessages,
           config: res.info,
         }
@@ -99,12 +100,13 @@ export function useHermes() {
       
       // Get title safely without blocking successful resume
       try {
-        const titleRes = await HermesGateway.getOrSetTitle(sessionId);
+        const titleRes = await HermesGateway.getOrSetTitle(activeSessionId);
         setCurrentThreadTitle(titleRes.title || 'Session');
       } catch (titleErr) {
         console.warn('Failed to fetch session title:', titleErr);
         setCurrentThreadTitle('Session');
       }
+      return activeSessionId;
     } catch (e: any) {
       console.error('Failed to resume session:', e);
       if (e.message?.toLowerCase().includes('not found')) {
@@ -112,6 +114,7 @@ export function useHermes() {
         dispatch({ type: 'session.clear' });
       }
       dispatch({ type: 'error', payload: { message: `Failed to resume session: ${e.message}` } });
+      throw e;
     }
   }, []);
 

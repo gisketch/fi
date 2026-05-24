@@ -8,6 +8,78 @@ interface ControlCenterDialogProps {
   onClose: () => void;
 }
 
+const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? value as T[] : []);
+
+const firstArray = <T,>(...values: unknown[]): T[] => {
+  for (const value of values) {
+    if (Array.isArray(value)) return value as T[];
+  }
+  return [];
+};
+
+const objectValues = <T,>(value: unknown): T[] => {
+  if (!value || Array.isArray(value) || typeof value !== 'object') return [];
+  return Object.entries(value as Record<string, unknown>).map(([name, entry]) => {
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      return { name, ...(entry as Record<string, unknown>) } as T;
+    }
+    return { name, value: entry } as T;
+  });
+};
+
+const getProviderModels = (provider: any): string[] =>
+  firstArray<unknown>(provider?.models, provider?.items, provider?.options)
+    .map((model) => {
+      if (typeof model === 'string') return model;
+      if (model && typeof model === 'object') {
+        const entry = model as Record<string, unknown>;
+        return entry.name || entry.id || entry.model;
+      }
+      return null;
+    })
+    .filter((model): model is string => typeof model === 'string' && model.length > 0);
+
+const normalizeProviders = (payload: any): any[] => {
+  const providers = firstArray<any>(payload?.providers, payload?.models, payload?.items);
+  if (providers.length) return providers;
+  return objectValues<any>(payload?.providers || payload?.models);
+};
+
+const normalizeToolsets = (payload: any): any[] => {
+  const toolsets = firstArray<any>(payload?.toolsets, payload?.tools, payload?.items);
+  if (toolsets.length) return toolsets;
+  return objectValues<any>(payload?.toolsets || payload?.tools);
+};
+
+const normalizeSkills = (payload: any): any[] => {
+  const skills = firstArray<any>(
+    payload?.skills,
+    payload?.items,
+    payload?.results,
+    payload?.installed,
+    payload?.available,
+    payload?.data,
+  );
+  if (skills.length) return skills;
+  return objectValues<any>(payload?.skills || payload?.items || payload?.data);
+};
+
+const configValueFromPayload = (payload: any, key: string): string => {
+  const candidates = [
+    payload?.value,
+    payload?.[key],
+    payload?.config?.[key],
+    payload?.config?.value,
+    payload?.config?.default,
+  ];
+
+  const value = candidates.find((candidate) => candidate !== undefined && candidate !== null);
+  return value === undefined || value === null ? '' : String(value);
+};
+
+const reasoningOptions = ['auto', 'medium', 'high', 'low', 'none'];
+const thinkingModeOptions = ['collapsed', 'truncated', 'full'];
+
 export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogProps) => {
   const [activeTab, setActiveTab] = useState<'config' | 'models' | 'tools' | 'skills'>('config');
   const [loading, setLoading] = useState(false);
@@ -15,6 +87,8 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
 
   // Config State
   const [configRows, setConfigRows] = useState<string[][]>([]);
+  const [reasoningValue, setReasoningValue] = useState<string>('auto');
+  const [thinkingModeValue, setThinkingModeValue] = useState<string>('collapsed');
   
   // Model State
   const [providers, setProviders] = useState<any[]>([]);
@@ -30,8 +104,12 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
     setLoading(true);
     setError(null);
     try {
-      const res = await HermesGateway.showConfig();
-      const rows = res.sections.flatMap(s => s.rows);
+      const [res, reasoningRes, thinkingModeRes] = await Promise.all([
+        HermesGateway.showConfig(),
+        HermesGateway.getConfig('reasoning', sessionId || undefined).catch(() => null),
+        HermesGateway.getConfig('thinking_mode', sessionId || undefined).catch(() => null),
+      ]);
+      const rows = asArray<any>(res.sections).flatMap(s => asArray<string[]>(s?.rows));
       setConfigRows(rows);
 
       // Extract current model if possible
@@ -39,6 +117,12 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
       if (modelRow) {
         setCurrentModel(modelRow[1]);
       }
+
+      const reasoning = configValueFromPayload(reasoningRes, 'reasoning');
+      if (reasoning) setReasoningValue(reasoning);
+
+      const thinkingMode = configValueFromPayload(thinkingModeRes, 'thinking_mode');
+      if (thinkingMode) setThinkingModeValue(thinkingMode);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -51,7 +135,7 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
     setError(null);
     try {
       const res = await HermesGateway.getModelOptions(sessionId || undefined);
-      setProviders(res.providers || []);
+      setProviders(normalizeProviders(res));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -64,7 +148,7 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
     setError(null);
     try {
       const res = await HermesGateway.listToolsets(sessionId || undefined);
-      setToolsets(res.toolsets || []);
+      setToolsets(normalizeToolsets(res));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -77,7 +161,7 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
     setError(null);
     try {
       const res = await HermesGateway.manageSkills({ action: 'list' });
-      setSkills(res.skills || []);
+      setSkills(normalizeSkills(res));
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -122,6 +206,19 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
       void loadConfig();
     } catch (e: any) {
       setError(e.message);
+    }
+  };
+
+  const handleSetConfigValue = async (key: 'reasoning' | 'thinking_mode', value: string) => {
+    try {
+      setError(null);
+      if (key === 'reasoning') setReasoningValue(value);
+      if (key === 'thinking_mode') setThinkingModeValue(value);
+      await HermesGateway.setConfig(key, value, sessionId || undefined);
+      void loadConfig();
+    } catch (e: any) {
+      setError(e.message);
+      void loadConfig();
     }
   };
 
@@ -225,12 +322,65 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
 
           {!loading && activeTab === 'config' && (
             <div className="space-y-2">
-              {configRows.map(([key, val]) => {
-                const isToggleable = ['true', 'false', 'on', 'off', 'enabled', 'disabled'].includes(val.toLowerCase());
-                const isTrue = ['true', 'on', 'enabled'].includes(val.toLowerCase());
+              <div className="space-y-3 rounded-2xl border border-white/[0.045] bg-white/[0.02] p-3">
+                <div>
+                  <div className="font-serif-hermes text-[15px] italic text-zinc-200">Reasoning</div>
+                  <div className="font-sans-hermes text-[11px] text-neutral-500">
+                    Live reasoning budget for the active agent.
+                  </div>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {reasoningOptions.map((option) => (
+                    <button
+                      key={`reasoning-${option}`}
+                      type="button"
+                      onClick={() => void handleSetConfigValue('reasoning', option)}
+                      className={`rounded-xl border px-2 py-2 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+                        reasoningValue === option
+                          ? 'border-white/20 bg-white/[0.08] text-white'
+                          : 'border-white/[0.04] bg-black/20 text-neutral-500 hover:bg-white/[0.035] hover:text-neutral-300'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-2xl border border-white/[0.035] bg-white/[0.015] p-3">
+                <div>
+                  <div className="font-serif-hermes text-[15px] italic text-zinc-300">Thinking mode</div>
+                  <div className="font-sans-hermes text-[11px] text-neutral-600">
+                    Display mode for future sessions.
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {thinkingModeOptions.map((option) => (
+                    <button
+                      key={`thinking-${option}`}
+                      type="button"
+                      onClick={() => void handleSetConfigValue('thinking_mode', option)}
+                      className={`rounded-xl border px-2 py-2 font-mono text-[10px] uppercase tracking-wider transition-colors ${
+                        thinkingModeValue === option
+                          ? 'border-white/15 bg-white/[0.065] text-white'
+                          : 'border-white/[0.035] bg-black/20 text-neutral-500 hover:bg-white/[0.03] hover:text-neutral-300'
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {configRows.map(([rawKey, rawVal], index) => {
+                const key = String(rawKey ?? `config-${index}`);
+                const val = String(rawVal ?? '');
+                const lowerValue = val.toLowerCase();
+                const isToggleable = ['true', 'false', 'on', 'off', 'enabled', 'disabled'].includes(lowerValue);
+                const isTrue = ['true', 'on', 'enabled'].includes(lowerValue);
 
                 return (
-                  <div key={key} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.025] hover:bg-white/[0.035]">
+                  <div key={`${key}-${index}`} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.025] hover:bg-white/[0.035]">
                     <div>
                       <div className="font-mono text-[12px] text-zinc-300 font-bold">{key}</div>
                       <div className="font-sans-hermes text-[11px] text-neutral-500 mt-0.5">Key status value</div>
@@ -259,18 +409,22 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
 
           {!loading && activeTab === 'models' && (
             <div className="space-y-4">
-              {providers.map((p) => (
-                <div key={p.provider} className="space-y-2">
+              {providers.map((p, providerIndex) => {
+                const providerName = String(p?.provider || p?.name || p?.id || `Provider ${providerIndex + 1}`);
+                const models = getProviderModels(p);
+                return (
+                <div key={`${providerName}-${providerIndex}`} className="space-y-2">
                   <div className="font-mono text-[11px] uppercase tracking-wider text-neutral-500 pl-1 font-bold">
-                    {p.provider}
+                    {providerName}
                   </div>
                   <div className="grid grid-cols-1 gap-1.5">
-                    {p.models.map((m: string) => {
-                      const isSelected = currentModel === m || currentModel.endsWith(m);
+                    {models.map((m: string, modelIndex) => {
+                      const modelName = String(m);
+                      const isSelected = currentModel === modelName || currentModel.endsWith(modelName);
                       return (
                         <button
-                          key={m}
-                          onClick={() => handleSelectModel(m)}
+                          key={`${providerName}-${modelName}-${modelIndex}`}
+                          onClick={() => handleSelectModel(modelName)}
                           className={`w-full text-left rounded-2xl p-3 flex items-center justify-between border transition-all ${
                             isSelected 
                               ? 'bg-white/[0.06] border-white/10' 
@@ -278,7 +432,7 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
                           }`}
                         >
                           <span className="font-serif-hermes text-[14px] italic text-zinc-200">
-                            {m}
+                            {modelName}
                           </span>
                           {isSelected && <Check className="w-4 h-4 text-white" />}
                         </button>
@@ -286,17 +440,20 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
                     })}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
           {!loading && activeTab === 'tools' && (
             <div className="space-y-2">
-              {toolsets.map((t) => (
-                <div key={t.name} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.025] hover:bg-white/[0.035]">
+              {toolsets.map((t, index) => {
+                const name = String(t?.name || t?.id || `toolset-${index + 1}`);
+                return (
+                <div key={`${name}-${index}`} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.025] hover:bg-white/[0.035]">
                   <div>
                     <div className="font-serif-hermes text-[15px] italic text-zinc-300">
-                      {t.name.replace(/_/g, ' ')}
+                      {name.replace(/_/g, ' ')}
                     </div>
                     {t.description && (
                       <div className="font-sans-hermes text-[11px] text-neutral-500 mt-0.5">
@@ -305,7 +462,7 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
                     )}
                   </div>
                   <button
-                    onClick={() => handleToggleToolset(t.name, t.enabled)}
+                    onClick={() => handleToggleToolset(name, Boolean(t?.enabled))}
                     className="text-neutral-400 hover:text-white"
                   >
                     {t.enabled ? (
@@ -315,7 +472,8 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
                     )}
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -338,23 +496,26 @@ export const ControlCenterDialog = ({ sessionId, onClose }: ControlCenterDialogP
                 </div>
               )}
 
-              {skills.map((s) => (
-                <div key={s.name} className="p-3 rounded-2xl bg-white/[0.025] border border-white/[0.03] space-y-1">
+              {skills.map((s, index) => {
+                const name = String(s?.name || s?.id || s?.slug || `skill-${index + 1}`);
+                return (
+                <div key={`${name}-${index}`} className="p-3 rounded-2xl bg-white/[0.025] border border-white/[0.03] space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-[12px] text-white font-bold">{s.name}</span>
-                    {s.installed && (
+                    <span className="font-mono text-[12px] text-white font-bold">{name}</span>
+                    {Boolean(s?.installed) && (
                       <span className="rounded bg-white/[0.06] border border-white/[0.05] px-1.5 py-0.5 font-mono text-[9px] text-neutral-400">
                         active
                       </span>
                     )}
                   </div>
-                  {s.description && (
+                  {s?.description && (
                     <p className="font-sans-hermes text-[11px] text-neutral-500">
                       {s.description}
                     </p>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
