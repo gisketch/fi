@@ -1,0 +1,16 @@
+{
+  "type": "gateway.ready",
+  "session_id": "",
+  "payload": {
+    "skin": {
+      "primary_color": "#ffffff"
+    },
+    "config": {
+      "model": "anthropic/claude-sonnet-4"
+    },
+    "server": {
+      "name": "hermes-web-api",
+      "auth_enabled": false
+    }
+  }
+}

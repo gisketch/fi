@@ -1,0 +1,12 @@
+{
+  "type": "approval.request",
+  "payload": {
+    "session_id": "s1",
+    "request_id": "req1",
+    "tool": "shell.exec",
+    "arguments": {
+      "command": "rm -rf /"
+    },
+    "message": "Execute dangerous clean-up?"
+  }
+}

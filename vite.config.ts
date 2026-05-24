@@ -37,9 +37,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://fi.gisketch.com',
+        target: 'http://167.254.240.228:8643',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+        ws: true,
+        rewrite: (path) => path.startsWith('/api/ws') ? path : path.replace(/^\/api/, ''),
       },
       '/usage-api': {
         target: 'http://167.254.240.228:8088',

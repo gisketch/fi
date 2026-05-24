@@ -1,14 +1,7 @@
-import { useState, useCallback, useRef } from 'react';
-import {
-  createThread,
-  getRun,
-  getThread,
-  sendThreadMessage,
-  stopRun,
-  consumeRunEvents,
-  HermesEvent,
-  ThreadDetail,
-} from '../services/api';
+import { useState, useCallback, useEffect, useReducer, useRef } from 'react';
+import HermesGateway from '../services/hermesGateway';
+import { hermesEventReducer, initialHermesState, messagesFromHistory } from '../state/hermesEventReducer';
+import { hermesTransport } from '../services/hermesTransport';
 
 export interface ToolActivity {
   id: string;
@@ -20,6 +13,7 @@ export interface ToolActivity {
 
 export type ChatSegment =
   | { id: string; type: 'text'; content: string }
+  | { id: string; type: 'thinking'; content: string }
   | { id: string; type: 'tool'; tool: ToolActivity };
 
 export interface ChatMessage {
@@ -31,344 +25,257 @@ export interface ChatMessage {
   status: 'running' | 'completed' | 'failed';
   runId?: string;
   threadId?: string;
+  reasoning?: string;
+  usage?: any;
 }
 
 const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const getThreadTitle = (text: string) => {
-  const cleaned = text.trim().replace(/\s+/g, ' ');
-  return cleaned.length > 42 ? `${cleaned.slice(0, 42)}…` : cleaned || 'New Session';
-};
+export function useHermes() {
+  const [state, dispatch] = useReducer(hermesEventReducer, initialHermesState);
+  const [currentThreadTitle, setCurrentThreadTitle] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
 
-const textSegmentFromContent = (content: string): ChatSegment[] =>
-  content ? [{ id: makeId('text'), type: 'text', content }] : [];
+  // Ref to hold the active session ID to avoid dependency closure issues
+  const activeSessionIdRef = useRef<string | null>(null);
 
-const messagesFromThread = (thread: ThreadDetail): ChatMessage[] =>
-  (thread.messages || [])
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message) => ({
-      id: String(message.id),
-      role: message.role as 'user' | 'assistant',
-      content: message.content || '',
-      tools: [],
-      segments: message.role === 'assistant' ? textSegmentFromContent(message.content || '') : [],
-      status: 'completed',
-      runId: message.run_id,
-      threadId: thread.id,
-    }));
+  // Sync session ID to ref and localStorage
+  useEffect(() => {
+    activeSessionIdRef.current = state.activeSessionId;
+    if (state.activeSessionId) {
+      localStorage.setItem('hermes_active_session_id', state.activeSessionId);
+    } else {
+      localStorage.removeItem('hermes_active_session_id');
+    }
+  }, [state.activeSessionId]);
 
-const appendDeltaToSegments = (segments: ChatSegment[], delta: string): ChatSegment[] => {
-  const next = [...segments];
-  const last = next[next.length - 1];
+  // Hook up event subscriber
+  useEffect(() => {
+    const unsub = HermesGateway.onEvent((event) => {
+      // Direct WS events are routed to our reducer
+      dispatch(event);
+    });
 
-  if (last?.type === 'text') {
-    next[next.length - 1] = { ...last, content: last.content + delta };
-  } else {
-    next.push({ id: makeId('text'), type: 'text', content: delta });
-  }
-
-  return next;
-};
-
-const updateTool = (tool: ToolActivity, event: { error?: boolean; duration?: number }): ToolActivity => ({
-  ...tool,
-  status: event.error ? 'failed' : 'completed',
-  duration: event.duration,
-});
-
-function applyRunEvent(message: ChatMessage, event: HermesEvent): ChatMessage {
-  let updatedContent = message.content;
-  let updatedTools = [...message.tools];
-  let updatedSegments = [...message.segments];
-
-  if (event.event === 'message.delta') {
-    updatedContent += event.delta;
-    updatedSegments = appendDeltaToSegments(updatedSegments, event.delta);
-  } else if (event.event === 'tool.started') {
-    const activityId = `${event.tool}-${event.seq ?? updatedTools.length}-${Date.now()}`;
-    const activity: ToolActivity = {
-      id: activityId,
-      tool: event.tool,
-      preview: event.preview,
-      status: 'running',
+    // Handle connection status updates
+    hermesTransport.connectionStatusCallback = (status: any) => {
+      setConnectionStatus(status);
     };
-    updatedTools.push(activity);
-    updatedSegments.push({ id: `segment-${activityId}`, type: 'tool', tool: activity });
-  } else if (event.event === 'tool.completed') {
-    let matchedToolId: string | null = null;
 
-    for (let index = updatedTools.length - 1; index >= 0; index -= 1) {
-      const tool = updatedTools[index];
-      if (tool.tool === event.tool && tool.status === 'running') {
-        const completed = updateTool(tool, event);
-        updatedTools[index] = completed;
-        matchedToolId = tool.id;
-        break;
+    // Auto connect
+    HermesGateway.connect().catch((err) => {
+      console.error('Failed to auto-connect Hermes WS:', err);
+    });
+
+    // Try to restore previous session from localStorage
+    const savedSessionId = localStorage.getItem('hermes_active_session_id');
+    if (savedSessionId) {
+      void resumeSession(savedSessionId);
+    }
+
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  const resumeSession = useCallback(async (sessionId: string) => {
+    // Optimistically transition to loading state instantly
+    dispatch({ type: 'session.resume_start', payload: { sessionId } });
+
+    try {
+      const res = await HermesGateway.resumeSession(sessionId);
+      
+      // Convert history messages
+      const historyMessages = messagesFromHistory(res.messages || [], sessionId);
+      
+      // Sync to local state purely
+      dispatch({
+        type: 'session.resume_success',
+        payload: {
+          sessionId,
+          messages: historyMessages,
+          config: res.info,
+        }
+      });
+      
+      // Get title safely without blocking successful resume
+      try {
+        const titleRes = await HermesGateway.getOrSetTitle(sessionId);
+        setCurrentThreadTitle(titleRes.title || 'Session');
+      } catch (titleErr) {
+        console.warn('Failed to fetch session title:', titleErr);
+        setCurrentThreadTitle('Session');
+      }
+    } catch (e: any) {
+      console.error('Failed to resume session:', e);
+      if (e.message?.toLowerCase().includes('not found')) {
+        localStorage.removeItem('hermes_active_session_id');
+        dispatch({ type: 'session.clear' });
+      }
+      dispatch({ type: 'error', payload: { message: `Failed to resume session: ${e.message}` } });
+    }
+  }, []);
+
+  const loadThread = useCallback(async (threadId: string) => {
+    // compatibility alias for resumeSession
+    await resumeSession(threadId);
+  }, [resumeSession]);
+
+  const createSession = useCallback(async () => {
+    try {
+      const res = await HermesGateway.createSession(80);
+      dispatch({
+        type: 'session.created',
+        payload: {
+          sessionId: res.session_id,
+          info: res.info,
+        }
+      });
+      return res.session_id;
+    } catch (e: any) {
+      dispatch({ type: 'error', payload: { message: `Failed to create session: ${e.message}` } });
+      throw e;
+    }
+  }, []);
+
+  const sendMessage = useCallback(async (text: string, model?: string) => {
+    if (!text.trim() || state.isRunning) return;
+
+    dispatch({ type: 'error', payload: { message: null } });
+
+    // Step 1: Ensure active session exists
+    let sessionId = activeSessionIdRef.current;
+    if (!sessionId) {
+      try {
+        sessionId = await createSession();
+      } catch (err) {
+        return;
       }
     }
 
-    if (matchedToolId) {
-      updatedSegments = updatedSegments.map((segment) => {
-        if (segment.type === 'tool' && segment.tool.id === matchedToolId) {
-          return { ...segment, tool: updateTool(segment.tool, event) };
-        }
-        return segment;
-      });
-    }
-  } else if (event.event === 'run.completed') {
-    const finalOutput = event.response || event.output || '';
-    if (!updatedContent && finalOutput) {
-      updatedContent = finalOutput;
-      updatedSegments = appendDeltaToSegments(updatedSegments, finalOutput);
-    }
-    return {
-      ...message,
-      content: updatedContent,
-      tools: updatedTools,
-      segments: updatedSegments,
-      status: 'completed',
-    };
-  } else if (event.event === 'run.failed') {
-    return {
-      ...message,
-      tools: updatedTools,
-      segments: updatedSegments,
-      status: 'failed',
-    };
-  }
-
-  return {
-    ...message,
-    content: updatedContent,
-    tools: updatedTools,
-    segments: updatedSegments,
-  };
-}
-
-export function useHermes() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isRunning, setIsRunning] = useState(false);
-  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
-  const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
-  const [currentThreadTitle, setCurrentThreadTitle] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const runSeqRef = useRef<Record<string, number>>({});
-
-  const streamRun = useCallback(async (runId: string, assistantMessageId: string, since = 0) => {
-    setIsRunning(true);
-    setCurrentRunId(runId);
-
-    await consumeRunEvents(
-      runId,
-      (event: HermesEvent) => {
-        setError(null);
-        if (event.seq) {
-          runSeqRef.current[runId] = Math.max(runSeqRef.current[runId] || 0, event.seq);
-        }
-
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId ? applyRunEvent(msg, event) : msg
-          )
-        );
-      },
-      () => {
-        setError(null);
-        setIsRunning(false);
-        setCurrentRunId(null);
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId && msg.status === 'running'
-              ? { ...msg, status: 'completed' }
-              : msg
-          )
-        );
-      },
-      (streamErr) => {
-        setError(streamErr.message);
-        setIsRunning(false);
-        setCurrentRunId(null);
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? { ...msg, status: 'failed' }
-              : msg
-          )
-        );
-      },
-      since
-    );
-  }, []);
-
-  const stopActiveRun = useCallback(async () => {
-    if (!currentRunId) return;
-    try {
-      await stopRun(currentRunId);
-      setIsRunning(false);
-      setCurrentRunId(null);
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.status === 'running' ? { ...msg, status: 'failed' } : msg
-        )
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to interrupt execution');
-    }
-  }, [currentRunId]);
-
-  const sendMessage = useCallback(async (text: string, model = 'deepseek-v4-flash') => {
-    if (!text.trim() || isRunning) return;
-
-    setError(null);
-    setIsRunning(true);
-
+    // Step 2: Append user message locally purely
     const userMsg: ChatMessage = {
       id: makeId('user'),
       role: 'user',
       content: text,
       tools: [],
-      segments: [],
+      segments: [{ id: makeId('text'), type: 'text', content: text }],
       status: 'completed',
-      threadId: currentThreadId || undefined,
+      threadId: sessionId || undefined,
     };
 
-    const assistantMessageId = makeId('assistant');
-    const assistantMsg: ChatMessage = {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: '',
-      tools: [],
-      segments: [],
-      status: 'running',
-      threadId: currentThreadId || undefined,
-    };
+    dispatch({
+      type: 'message.user_sent',
+      payload: { message: userMsg }
+    });
 
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    // Step 3: Set model config if specified
+    if (model) {
+      try {
+        await HermesGateway.setConfig('model', model, sessionId || undefined);
+      } catch (e) {
+        // ignore config set error, continue
+      }
+    }
+
+    // Step 4: Set title if first user message
+    const userMessageCount = state.messages.filter((m) => m.role === 'user').length;
+    if (userMessageCount === 0) {
+      const title = text.length > 40 ? `${text.slice(0, 40)}...` : text;
+      try {
+        await HermesGateway.getOrSetTitle(sessionId || '', title);
+        setCurrentThreadTitle(title);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Step 5: Submit prompt via WebSocket RPC
+    try {
+      await HermesGateway.submitPrompt(sessionId || '', text);
+    } catch (e: any) {
+      dispatch({ type: 'error', payload: { message: `Submit failed: ${e.message}` } });
+    }
+  }, [state.isRunning, state.messages, createSession]);
+
+  const stopActiveRun = useCallback(async () => {
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionId) return;
 
     try {
-      let threadId = currentThreadId;
-      if (!threadId) {
-        const thread = await createThread(getThreadTitle(text));
-        threadId = thread.id;
-        setCurrentThreadId(thread.id);
-        setCurrentThreadTitle(thread.title || getThreadTitle(text));
-      }
-
-      const runRes = await sendThreadMessage(threadId, text, model);
-      const runId = runRes.run_id;
-      runSeqRef.current[runId] = 0;
-
-      setMessages((prev) =>
-        prev.map((msg) => {
-          if (msg.id === assistantMessageId) {
-            return { ...msg, runId, threadId };
-          }
-          if (msg.id === userMsg.id) {
-            return { ...msg, threadId };
-          }
-          return msg;
-        })
-      );
-
-      await streamRun(runId, assistantMessageId, 0);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error launching run');
-      setIsRunning(false);
-      setCurrentRunId(null);
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === assistantMessageId ? { ...msg, status: 'failed' } : msg
-        )
-      );
+      await HermesGateway.interrupt(sessionId);
+      dispatch({
+        type: 'message.complete',
+        payload: { status: 'failed', reasoning: 'Interrupted by user' }
+      });
+    } catch (e: any) {
+      dispatch({ type: 'error', payload: { message: `Failed to stop: ${e.message}` } });
     }
-  }, [currentThreadId, isRunning, streamRun]);
-
-  const loadThread = useCallback(async (threadId: string) => {
-    setError(null);
-    const thread = await getThread(threadId);
-    setCurrentThreadId(thread.id);
-    setCurrentThreadTitle(thread.title || 'Session');
-    setMessages(messagesFromThread(thread));
   }, []);
 
-  const reconnectRun = useCallback(async (runId: string, threadId?: string) => {
-    setError(null);
-
-    if (threadId) {
+  const clearChat = useCallback(async () => {
+    const sessionId = activeSessionIdRef.current;
+    if (sessionId) {
       try {
-        await loadThread(threadId);
-      } catch {
-        // Fall back to run-only view below.
+        await HermesGateway.closeSession(sessionId);
+      } catch (e) {
+        // ignore
       }
     }
 
-    const assistantMessageId = makeId('assistant');
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: assistantMessageId,
-        role: 'assistant',
-        content: '',
-        tools: [],
-        segments: [],
-        status: 'running',
-        runId,
-        threadId,
-      },
-    ]);
-
-    runSeqRef.current[runId] = 0;
-    await streamRun(runId, assistantMessageId, 0);
-  }, [loadThread, streamRun]);
-
-  const connectRun = useCallback(async (runId: string, threadId?: string) => {
-    setError(null);
-    const run = await getRun(runId).catch(() => null);
-
-    if (threadId || run?.thread_id) {
-      await loadThread(threadId || run?.thread_id || '');
-    }
-
-    if (run?.status === 'running' || run?.status === 'queued') {
-      await reconnectRun(runId, threadId || run?.thread_id);
-      return;
-    }
-
-    if (!threadId && !run?.thread_id && run?.output) {
-      setMessages([
-        {
-          id: makeId('assistant'),
-          role: 'assistant',
-          content: run.output,
-          tools: [],
-          segments: textSegmentFromContent(run.output),
-          status: run.status === 'failed' ? 'failed' : 'completed',
-          runId,
-        },
-      ]);
-    }
-  }, [loadThread, reconnectRun]);
-
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
-
-  const clearChat = useCallback(() => {
-    setMessages([]);
-    setError(null);
-    setCurrentRunId(null);
-    setCurrentThreadId(null);
+    dispatch({ type: 'session.clear' });
     setCurrentThreadTitle(null);
   }, []);
 
+  const clearError = useCallback(() => {
+    dispatch({ type: 'error', payload: { message: null } });
+  }, []);
+
+  // Blocking prompt responders
+  const resolveBlockingRequest = useCallback(async (type: 'approval' | 'clarify' | 'sudo' | 'secret', choiceOrValue: string, all = false) => {
+    const request = state.blockingRequests.find(r => r.type === type);
+    if (!request) return;
+
+    dispatch({ type: 'blocking.resolve', payload: { type } });
+
+    try {
+      if (type === 'approval') {
+        const sessionId = activeSessionIdRef.current || '';
+        await HermesGateway.respondApproval(sessionId, choiceOrValue, all);
+      } else if (type === 'clarify') {
+        await HermesGateway.respondClarify(request.payload.request_id, choiceOrValue);
+      } else if (type === 'sudo') {
+        await HermesGateway.respondSudo(request.payload.request_id, choiceOrValue);
+      } else if (type === 'secret') {
+        await HermesGateway.respondSecret(request.payload.request_id, choiceOrValue);
+      }
+      
+      // Trigger a small refresh or notify
+      dispatch({ type: 'status.update', payload: { text: `Submitted response for ${type}` } });
+    } catch (err: any) {
+      dispatch({ type: 'error', payload: { message: `Failed response: ${err.message}` } });
+    }
+  }, [state.blockingRequests]);
+
+  // Compatibility facade methods
+  const connectRun = useCallback(async (_runId: string, threadId?: string) => {
+    if (threadId) {
+      await loadThread(threadId);
+    }
+  }, [loadThread]);
+
+  const reconnectRun = useCallback(async (_runId: string, threadId?: string) => {
+    if (threadId) {
+      await loadThread(threadId);
+    }
+  }, [loadThread]);
+
   return {
-    messages,
-    isRunning,
-    currentRunId,
-    currentThreadId,
+    // Compatibility Facade properties
+    messages: state.messages,
+    isRunning: state.isRunning,
+    currentThreadId: state.activeSessionId,
     currentThreadTitle,
-    error,
+    error: state.error,
     clearError,
     sendMessage,
     stopActiveRun,
@@ -376,5 +283,15 @@ export function useHermes() {
     loadThread,
     connectRun,
     reconnectRun,
+
+    // Advanced Hermes states & actions
+    connectionStatus,
+    statusLine: state.statusLine,
+    blockingRequests: state.blockingRequests,
+    voiceState: state.voiceState,
+    sessionInfo: state.sessionInfo,
+    resolveBlockingRequest,
+    resumeSession,
+    createSession,
   };
 }

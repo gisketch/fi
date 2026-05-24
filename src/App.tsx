@@ -1,7 +1,12 @@
 import { memo, useState, useRef, useEffect } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useHermes, ToolActivity, ChatMessage, ChatSegment } from './hooks/useHermes';
-import { getUsageData, listRuns, listThreads, RunSummary, ThreadSummary, UsageData } from './services/api';
+import { getUsageData, UsageData } from './services/api';
+import HermesGateway from './services/hermesGateway';
+import { StoredSession } from './types/hermes';
+import { SessionsDialog } from './components/dialogs/SessionsDialog';
+import { ControlCenterDialog } from './components/dialogs/ControlCenterDialog';
+import { BlockingPromptsDialog } from './components/dialogs/BlockingPromptsDialog';
 import { enableNotifications, getNotificationSupport } from './services/notifications';
 import { 
   ArrowUp, 
@@ -10,7 +15,7 @@ import {
   Code
 } from '@solar-icons/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Coins, Copy, Layers, Menu, RefreshCw, X } from 'lucide-react';
+import { Coins, Copy, Layers, Menu, X, Brain } from 'lucide-react';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { VirtualMessage } from './components/VirtualMessage';
 
@@ -42,7 +47,8 @@ const getToolStatusLabel = (tool: ToolActivity) => {
   }
 };
 
-const getToolDisplayName = (tool: string) => {
+const getToolDisplayName = (tool?: string) => {
+  if (!tool) return 'Tool call';
   switch (tool) {
     case 'terminal':
       return 'Terminal';
@@ -122,9 +128,9 @@ const ToolStatusText = memo(({ text, active }: { text: string; active: boolean }
           aria-hidden="true"
           className="inline-block"
           animate={active ? {
-            color: ['rgba(161,161,170,0.58)', 'rgba(244,244,245,0.82)', 'rgba(161,161,170,0.58)'],
+            color: ['rgba(163,163,163,0.58)', 'rgba(244,244,245,0.85)', 'rgba(163,163,163,0.58)'],
           } : {
-            color: 'rgba(113,113,122,0.72)',
+            color: 'rgba(163,163,163,0.85)',
           }}
           style={{ textShadow: 'none' }}
           transition={active ? {
@@ -195,13 +201,14 @@ const ToolRunDialog = ({ tools, onClose }: { tools: ToolActivity[]; onClose: () 
   </div>
 );
 
-const formatSessionTime = (value?: number) => {
-  if (!value) return 'unknown';
-  const ms = value < 10_000_000_000 ? value * 1000 : value;
-  return new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-};
 
-const ToolSegmentLine = memo(({ tool, tools, onOpen }: { tool: ToolActivity; tools: ToolActivity[]; onOpen: () => void }) => {
+
+const ToolSegmentLine = memo(({ tool, tools, onOpen, className }: { 
+  tool: ToolActivity; 
+  tools: ToolActivity[]; 
+  onOpen: () => void;
+  className?: string;
+}) => {
   const active = tool.status === 'running';
   const failed = tool.status === 'failed';
 
@@ -212,17 +219,77 @@ const ToolSegmentLine = memo(({ tool, tools, onOpen }: { tool: ToolActivity; too
       initial={{ opacity: 0, y: 4, filter: 'blur(6px)' }}
       animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
       transition={{ duration: 0.2 }}
-      className={`flex max-w-full items-center gap-2 pt-1 text-left font-serif-hermes text-[17px] italic leading-relaxed select-none active:scale-[0.99] ${failed ? 'text-red-300/70' : 'text-neutral-500'} ${active ? '' : 'opacity-50'}`}
+      className={`hover:text-neutral-300 font-serif-hermes text-[15px] italic text-neutral-400 cursor-pointer flex items-center gap-2 outline-none select-none active:scale-[0.99] text-left ${failed ? 'text-red-300/70' : ''} ${active ? '' : 'opacity-70'} ${className || ''}`}
       aria-label={`Open work trace with ${tools.length} tool calls`}
     >
-      <span className={active ? 'text-white/60' : 'text-neutral-700'}>
-        <Code className="w-3.5 h-3.5 shrink-0" />
-      </span>
+      <Code className={`w-3.5 h-3.5 text-neutral-500 shrink-0 ${active ? 'animate-pulse' : ''}`} />
       <ToolStatusText text={getToolStatusLabel(tool)} active={active} />
     </motion.button>
   );
 });
 ToolSegmentLine.displayName = 'ToolSegmentLine';
+
+const spinnerStyles = [
+  ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'], // Standard Braille
+  ['⠁⠂⠄⡀', '⠂⠄⡀⢀', '⠄⡀⢀⠠', '⡀⢀⠠⠐', '⢀⠠⠐⠈', '⠠⠐⠈⠁', '⠐⠈⠁⠂', '⠈⠁⠂⠄'], // Braille Wave
+  ['⠋⠉⠙⠚', '⠉⠙⠚⠒', '⠙⠚⠒⠂', '⠚⠒⠂⠂', '⠒⠂⠂⠒', '⠂⠂⠒⠲', '⠂⠒⠲⠴', '⠒⠲⠴⠤', '⠲⠴⠤⠄', '⠴⠤⠄⠋', '⠤⠄⠋⠉', '⠄⠋⠉⠙'] // DNA helix
+];
+
+const fiLoadingMessages = [
+  "Computing probabilities...",
+  "Analyzing structural parameters...",
+  "Calculating optimal vectors...",
+  "Accessing remote databanks...",
+  "Measuring aura levels...",
+  "Aligning local modules...",
+  "Performing context assessment...",
+  "Parsing structural intent...",
+  "Calibrating system response...",
+  "Retrieving knowledge shards...",
+  "Scanning local workspace...",
+  "Computing 97% probability..."
+];
+
+const FiPendingIndicator = memo(() => {
+  const [frame, setFrame] = useState(0);
+  const [message, setMessage] = useState(fiLoadingMessages[Math.floor(Math.random() * fiLoadingMessages.length)]);
+  
+  // Pick one random spinner style on mount
+  const spinnerFramesRef = useRef(spinnerStyles[Math.floor(Math.random() * spinnerStyles.length)]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFrame((f) => (f + 1) % spinnerFramesRef.current.length);
+    }, 80);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    // Cycle text message every 1.5s
+    const msgTimer = setInterval(() => {
+      setMessage(fiLoadingMessages[Math.floor(Math.random() * fiLoadingMessages.length)]);
+    }, 1500);
+    return () => clearInterval(msgTimer);
+  }, []);
+
+  const charCount = spinnerFramesRef.current[0]?.length || 1;
+  const widthClass = charCount === 1 ? 'w-5' : 'w-12';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4, filter: 'blur(4px)' }}
+      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+      transition={{ duration: 0.2 }}
+      className="flex items-center gap-3 pt-2 select-none font-serif-hermes text-[15px] italic text-neutral-400"
+    >
+      <span className={`font-mono text-[17px] text-white/70 h-5 ${widthClass} flex items-center justify-center animate-pulse`}>
+        {spinnerFramesRef.current[frame]}
+      </span>
+      <span className="animate-pulse">{message}</span>
+    </motion.div>
+  );
+});
+FiPendingIndicator.displayName = 'FiPendingIndicator';
 
 const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, onOpenTools }: {
   segments: ChatSegment[];
@@ -236,27 +303,48 @@ const AssistantSegments = memo(({ segments, tools, fallbackContent, isRunning, o
   }
 
   if (!segments.length && isRunning) {
-    const pendingTool: ToolActivity = {
-      id: 'pending-tool',
-      tool: 'pending',
-      status: 'running',
-    };
     return (
-      <ToolSegmentLine tool={pendingTool} tools={tools} onOpen={onOpenTools} />
+      <FiPendingIndicator />
     );
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-col items-start gap-4 break-words [overflow-wrap:anywhere]">
-      {segments.map((segment) => (
-        segment.type === 'text' ? (
-          <div key={segment.id} className="w-full min-w-0 break-words [overflow-wrap:anywhere]">
+    <div className="w-full min-w-0 flex flex-col items-start break-words [overflow-wrap:anywhere]">
+      {segments.map((segment, index) => {
+        const isText = segment.type === 'text';
+        const prevSegment = index > 0 ? segments[index - 1] : null;
+        const prevIsText = prevSegment?.type === 'text';
+
+        // Determine spacing class
+        let spacingClass = '';
+        if (index > 0) {
+          if (isText || prevIsText) {
+            spacingClass = 'mt-5';
+          } else {
+            spacingClass = 'mt-2';
+          }
+        }
+
+        const isThinkingActive = isRunning && index === segments.length - 1;
+
+        return isText ? (
+          <div key={segment.id} className={`w-full min-w-0 break-words [overflow-wrap:anywhere] ${spacingClass}`}>
             <MarkdownMessage content={segment.content} />
           </div>
+        ) : segment.type === 'thinking' ? (
+          <details key={segment.id} className={`w-full select-none space-y-1 ${spacingClass}`}>
+            <summary className="hover:text-neutral-300 font-serif-hermes text-[15px] italic text-neutral-400 cursor-pointer flex items-center gap-2 outline-none list-none [&::-webkit-details-marker]:hidden">
+              <Brain className={`w-3.5 h-3.5 text-neutral-500 shrink-0 ${isThinkingActive ? 'animate-pulse' : ''}`} />
+              <ToolStatusText text={isThinkingActive ? "Thinking process" : "Reasoning"} active={isThinkingActive} />
+            </summary>
+            <div className="pt-2 text-neutral-500 font-serif-hermes text-[15px] italic leading-relaxed pl-6 border-l border-neutral-800">
+              <MarkdownMessage content={segment.content} />
+            </div>
+          </details>
         ) : (
-          <ToolSegmentLine key={segment.id} tool={segment.tool} tools={tools} onOpen={onOpenTools} />
-        )
-      ))}
+          <ToolSegmentLine key={segment.id} tool={segment.tool} tools={tools} onOpen={onOpenTools} className={spacingClass} />
+        );
+      })}
     </div>
   );
 });
@@ -281,7 +369,7 @@ const ChatMessageItem = memo(({ msg, onOpenTools }: { msg: ChatMessage; onOpenTo
       {...chatEntrance}
       className="flex w-full min-w-0 flex-col items-start space-y-4"
     >
-      {msg.segments.length || msg.content ? (
+      {msg.segments.length || msg.content || msg.status === 'running' ? (
         <div className="w-full min-w-0 font-serif-hermes text-[17px] leading-relaxed text-zinc-200 break-words [overflow-wrap:anywhere]">
           <AssistantSegments
             segments={msg.segments}
@@ -338,65 +426,7 @@ const NotificationsDialog = ({ message, error, onEnable, onClose }: {
   );
 };
 
-const SessionsDialog = ({
-  threads,
-  runs,
-  loading,
-  error,
-  currentThreadId,
-  onRefresh,
-  onClose,
-  onConnectThread,
-  onConnectRun,
-}: {
-  threads: ThreadSummary[];
-  runs: RunSummary[];
-  loading: boolean;
-  error: string | null;
-  currentThreadId: string | null;
-  onRefresh: () => void;
-  onClose: () => void;
-  onConnectThread: (threadId: string) => void;
-  onConnectRun: (run: RunSummary) => void;
-}) => (
-  <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 px-4 pb-4 backdrop-blur-xl sm:items-center" onClick={onClose}>
-    <motion.div role="dialog" aria-modal="true" aria-label="Sessions" initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }} animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }} exit={{ opacity: 0, y: 12, filter: 'blur(8px)' }} transition={{ duration: 0.22 }} onClick={(event) => event.stopPropagation()} className="max-h-[82vh] w-full max-w-xl overflow-hidden rounded-[28px] border border-white/[0.06] bg-neutral-950/95 shadow-2xl">
-      <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
-        <div>
-          <div className="font-serif-hermes text-[18px] italic text-zinc-200">Sessions</div>
-          <div className="font-sans-hermes text-[11px] text-neutral-600">Threads and reconnectable runs</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={onRefresh} className="rounded-full p-1 text-neutral-500 active:scale-95" aria-label="Refresh sessions"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
-          <button type="button" onClick={onClose} className="rounded-full p-1 text-neutral-500 active:scale-95" aria-label="Close sessions"><X className="h-4 w-4" /></button>
-        </div>
-      </div>
-      <div className="max-h-[70vh] space-y-5 overflow-auto p-4">
-        {error && <div className="rounded-2xl bg-red-950/20 p-3 font-sans-hermes text-[12px] text-red-200/70">{error}</div>}
-        <section className="space-y-2">
-          <div className="font-mono text-[11px] uppercase tracking-wider text-neutral-600">Threads</div>
-          {threads.length === 0 && !loading && <div className="font-serif-hermes text-[15px] italic text-neutral-600">No saved threads yet.</div>}
-          {threads.map((thread) => (
-            <button key={thread.id} type="button" onClick={() => onConnectThread(thread.id)} className={`w-full rounded-2xl p-3 text-left active:scale-[0.99] ${currentThreadId === thread.id ? 'bg-white/[0.06]' : 'bg-white/[0.025]'}`}>
-              <div className="truncate font-serif-hermes text-[16px] italic text-zinc-200">{thread.title || 'Untitled session'}</div>
-              <div className="mt-1 flex items-center justify-between gap-3 font-sans-hermes text-[11px] text-neutral-600"><span>{thread.message_count ?? 0} messages</span><span>{formatSessionTime(thread.updated_at || thread.created_at)}</span></div>
-            </button>
-          ))}
-        </section>
-        <section className="space-y-2">
-          <div className="font-mono text-[11px] uppercase tracking-wider text-neutral-600">Runs</div>
-          {runs.length === 0 && !loading && <div className="font-serif-hermes text-[15px] italic text-neutral-600">No runs available.</div>}
-          {runs.map((run) => (
-            <button key={run.run_id} type="button" onClick={() => onConnectRun(run)} className="w-full rounded-2xl bg-white/[0.025] p-3 text-left active:scale-[0.99]">
-              <div className="flex items-center justify-between gap-3"><div className="min-w-0 truncate font-serif-hermes text-[16px] italic text-zinc-200">{run.output?.slice(0, 42) || run.last_event || run.run_id}</div><span className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] ${run.status === 'running' ? 'bg-white/10 text-white' : 'bg-white/[0.04] text-neutral-500'}`}>{run.status}</span></div>
-              <div className="mt-1 flex items-center justify-between gap-3 font-sans-hermes text-[11px] text-neutral-600"><span className="truncate">{run.thread_id ? 'threaded' : 'run only'} · {run.model || 'model'}</span><span>{formatSessionTime(run.updated_at || run.created_at)}</span></div>
-            </button>
-          ))}
-        </section>
-      </div>
-    </motion.div>
-  </div>
-);
+
 
 export default function App() {
   const {
@@ -409,8 +439,11 @@ export default function App() {
     sendMessage,
     stopActiveRun,
     clearChat,
-    loadThread,
-    connectRun,
+    connectionStatus,
+    statusLine,
+    blockingRequests,
+    resolveBlockingRequest,
+    resumeSession,
   } = useHermes();
   const [inputValue, setInputValue] = useState('');
   const selectedModel = 'deepseek-v4-flash';
@@ -419,8 +452,8 @@ export default function App() {
   const [toolDialogTools, setToolDialogTools] = useState<ToolActivity[] | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [isControlCenterOpen, setIsControlCenterOpen] = useState(false);
+  const [sessions, setSessions] = useState<StoredSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -524,9 +557,8 @@ export default function App() {
     setSessionsLoading(true);
     setSessionsError(null);
     try {
-      const [threadData, runData] = await Promise.all([listThreads(), listRuns()]);
-      setThreads(threadData);
-      setRuns(runData);
+      const res = await HermesGateway.listSessions();
+      setSessions(res.sessions || []);
     } catch (e) {
       setSessionsError(e instanceof Error ? e.message : 'Failed to load sessions');
     } finally {
@@ -547,6 +579,11 @@ export default function App() {
     setIsNotificationsOpen(true);
   };
 
+  const openControlCenter = () => {
+    setIsMenuOpen(false);
+    setIsControlCenterOpen(true);
+  };
+
   const handleEnableNotifications = async () => {
     setNotificationMessage(null);
     setNotificationError(null);
@@ -558,21 +595,41 @@ export default function App() {
     }
   };
 
-  const handleConnectThread = async (threadId: string) => {
+  const handleConnectSession = async (sessionId: string) => {
+    setIsSessionsOpen(false);
     try {
-      await loadThread(threadId);
-      setIsSessionsOpen(false);
+      await resumeSession(sessionId);
     } catch (e) {
-      setSessionsError(e instanceof Error ? e.message : 'Failed to connect thread');
+      setSessionsError(e instanceof Error ? e.message : 'Failed to connect session');
     }
   };
 
-  const handleConnectRun = async (run: RunSummary) => {
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!confirm('Are you sure you want to delete this session?')) return;
     try {
-      await connectRun(run.run_id, run.thread_id);
-      setIsSessionsOpen(false);
+      await HermesGateway.deleteSession(sessionId);
+      void refreshSessions();
     } catch (e) {
-      setSessionsError(e instanceof Error ? e.message : 'Failed to connect run');
+      setSessionsError(e instanceof Error ? e.message : 'Failed to delete session');
+    }
+  };
+
+  const handleBranchSession = async (sessionId: string) => {
+    try {
+      const res = await HermesGateway.branchSession(sessionId);
+      setIsSessionsOpen(false);
+      await resumeSession(res.session_id);
+    } catch (e) {
+      setSessionsError(e instanceof Error ? e.message : 'Failed to branch session');
+    }
+  };
+
+  const handleRenameSession = async (sessionId: string, newTitle: string) => {
+    try {
+      await HermesGateway.getOrSetTitle(sessionId, newTitle);
+      void refreshSessions();
+    } catch (e) {
+      setSessionsError(e instanceof Error ? e.message : 'Failed to rename session');
     }
   };
 
@@ -601,9 +658,12 @@ export default function App() {
         <div className="flex min-w-0 items-baseline gap-4">
           <span 
             onClick={clearChat}
-            className="font-serif-hermes text-[27px] font-bold tracking-tight text-white select-none cursor-pointer active:opacity-75 transition-opacity"
+            className="font-serif-hermes text-[27px] font-bold tracking-tight text-white select-none cursor-pointer active:opacity-75 transition-opacity flex items-center gap-2"
           >
             Fi
+            {connectionStatus === 'connecting' && <span className="h-1.5 w-1.5 rounded-full bg-yellow-500/80 animate-pulse shrink-0" />}
+            {connectionStatus === 'connected' && <span className="h-1.5 w-1.5 rounded-full bg-green-500/80 shrink-0" />}
+            {connectionStatus === 'disconnected' && <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 shrink-0" />}
           </span>
           {currentThreadTitle && (
             <span className="min-w-0 truncate font-serif-hermes text-[13px] italic text-neutral-600">
@@ -641,6 +701,13 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  onClick={openControlCenter}
+                  className="w-full rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider text-neutral-400 active:bg-white/[0.04]"
+                >
+                  Controls
+                </button>
+                <button
+                  type="button"
                   onClick={openNotifications}
                   className="w-full rounded-xl px-3 py-2 text-left font-mono text-[12px] uppercase tracking-wider text-neutral-400 active:bg-white/[0.04]"
                 >
@@ -661,18 +728,33 @@ export default function App() {
           
           {/* Ethereal suggestions shown when chat is completely empty */}
           {messages.length === 0 && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="py-24 space-y-5 select-none text-center"
-            >
-              <h2 className="font-serif-hermes text-[26px] font-light leading-snug text-neutral-300 tracking-wide max-w-xs mx-auto">
-                What shall we execute today?
-              </h2>
-              <p className="font-serif-hermes text-[14px] italic leading-relaxed text-neutral-500 max-w-[190px] mx-auto">
-                An ethereal gateway to your Hermetic remote VPS server agent.
-              </p>
-            </motion.div>
+            statusLine === "Resuming session..." ? (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="py-24 space-y-5 select-none text-center"
+              >
+                <h2 className="font-serif-hermes text-[26px] font-light leading-snug text-neutral-300 tracking-wide max-w-xs mx-auto">
+                  <ToolStatusText text="Resuming session..." active={true} />
+                </h2>
+                <p className="font-serif-hermes text-[14px] italic leading-relaxed text-neutral-500 max-w-[240px] mx-auto animate-pulse">
+                  Measuring aura levels and calibrating thread parameters...
+                </p>
+              </motion.div>
+            ) : (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="py-24 space-y-5 select-none text-center"
+              >
+                <h2 className="font-serif-hermes text-[26px] font-light leading-snug text-neutral-300 tracking-wide max-w-xs mx-auto">
+                  What shall we execute today?
+                </h2>
+                <p className="font-serif-hermes text-[14px] italic leading-relaxed text-neutral-500 max-w-[190px] mx-auto">
+                  An ethereal gateway to your Hermetic remote VPS server agent.
+                </p>
+              </motion.div>
+            )
           )}
 
           {/* Timeline of messages */}
@@ -691,6 +773,17 @@ export default function App() {
                 );
               })}
             </AnimatePresence>
+
+            {statusLine && statusLine !== "Resuming session..." && (
+              <motion.div 
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="font-mono text-[11px] text-neutral-500 italic flex items-center gap-2 pl-3 border-l border-white/[0.04]"
+              >
+                <span className="h-1 w-1 rounded-full bg-neutral-500 animate-ping" />
+                <span>{statusLine}</span>
+              </motion.div>
+            )}
           </div>
         </div>
       </main>
@@ -732,15 +825,34 @@ export default function App() {
       <AnimatePresence>
         {isSessionsOpen && (
           <SessionsDialog
-            threads={threads}
-            runs={runs}
+            sessions={sessions}
             loading={sessionsLoading}
             error={sessionsError}
             currentThreadId={currentThreadId}
             onRefresh={refreshSessions}
             onClose={() => setIsSessionsOpen(false)}
-            onConnectThread={(threadId) => void handleConnectThread(threadId)}
-            onConnectRun={(run) => void handleConnectRun(run)}
+            onConnectSession={handleConnectSession}
+            onDeleteSession={handleDeleteSession}
+            onBranchSession={handleBranchSession}
+            onRenameSession={handleRenameSession}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isControlCenterOpen && (
+          <ControlCenterDialog
+            sessionId={currentThreadId}
+            onClose={() => setIsControlCenterOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {blockingRequests && blockingRequests.length > 0 && (
+          <BlockingPromptsDialog
+            request={blockingRequests[0]}
+            onResolve={resolveBlockingRequest}
           />
         )}
       </AnimatePresence>
@@ -804,7 +916,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="relative flex h-2 w-2">
-                  {isRunning ? (
+                  {isRunning && statusLine !== "Resuming session..." ? (
                     <>
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-40" />
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-white pulse-white-glow" />

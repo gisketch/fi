@@ -5,6 +5,8 @@
 | Check | Command | When To Run |
 |---|---|---|
 | Sonata structure | `./scripts/check-sonata.sh` | After scaffold, docs, or skill changes |
+| Hermes event reducer smoke | `bun scripts/check-hermes-events.ts` | After Hermes event, reducer, fixture, or hook compatibility changes |
+| Production build | `bun run build` | Before handoff after source or config changes |
 
 ## Retrofit Checks
 
@@ -15,17 +17,22 @@ When `/retrofit-sonata` runs, verify:
 - Project commands in this file are verified or marked unverified.
 - Broad migration work has an execution plan.
 
-## Add Stack Checks
+## Optional / Not Yet Mandatory
 
-Add real commands as soon as the stack exists:
+| Check | Command | Status |
+|---|---|---|
+| Dev server | `bun run dev` | Available for local manual PWA testing |
+| Preview server | `bun run preview` | Available after build |
+| Lint | `bun run lint` | Declared, but ESLint config/dependency completeness is not verified as a required gate |
 
-- Install dependencies.
+## Missing Stack Checks
+
+Add or promote commands when the repo has the needed tooling:
+
 - Format.
-- Lint.
-- Typecheck or compile.
-- Unit tests.
+- Lint, once verified.
+- Unit tests, if a test runner is added beyond the current Bun smoke script.
 - Integration tests.
-- Build.
 - Local run or smoke test.
 
 ## Quality Bar

@@ -1,0 +1,4 @@
+{"type": "message.start", "payload": {}}
+{"type": "message.delta", "payload": {"text": "Hel"}}
+{"type": "message.delta", "payload": {"text": "lo!"}}
+{"type": "message.complete", "payload": {"text": "Hello!", "status": "completed", "usage": {"input": 1, "output": 2, "total": 3}}}

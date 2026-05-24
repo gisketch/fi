@@ -1,0 +1,12 @@
+{
+  "type": "clarify.request",
+  "payload": {
+    "request_id": "req2",
+    "question": "Which folder do you want to list?",
+    "options": [
+      "/src",
+      "/tests",
+      "/docs"
+    ]
+  }
+}

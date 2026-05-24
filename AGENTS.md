@@ -31,7 +31,8 @@ Codex reads this file first. Keep it short. It is the map, not the manual.
 ## Current Project Facts
 
 - Kind: pwa for ios
-- Stack: vite spa
+- Stack: Vite SPA (React, TypeScript, TailwindCSS v4, Framer Motion)
+- Runtime path: Hermes Web API over WebSocket JSON-RPC, with REST/SSE fallback services
 - Package manager: bun
 - Default caveman mode: full
 - Agent targets: Codex, Copilot, Claude Code, Pi, Antigravity

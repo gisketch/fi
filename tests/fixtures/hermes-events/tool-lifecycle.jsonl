@@ -1,0 +1,3 @@
+{"type": "tool.start", "payload": {"tool": "shell.exec", "id": "t1", "arguments": {"command": "pwd"}}}
+{"type": "tool.progress", "payload": {"tool": "shell.exec", "id": "t1", "preview": "Running pwd..."}}
+{"type": "tool.complete", "payload": {"tool": "shell.exec", "id": "t1", "output": "/workspace\n", "error": false, "duration": 0.12}}

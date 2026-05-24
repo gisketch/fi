@@ -23,7 +23,7 @@ Turn the current Hermes iOS PWA prototype into the first useful, shippable Fi UI
 - [Source README](../../../src/README.md)
 - [API reference pointer](../../../API-REF.md)
 - [Vite config](../../../vite.config.ts)
-- [Hermes API service](../../../src/services/api.ts)
+- [Legacy usage/API compatibility service](../../../src/services/api.ts)
 - [Hermes hook](../../../src/hooks/useHermes.ts)
 - [App shell](../../../src/App.tsx)
 
@@ -31,22 +31,23 @@ Turn the current Hermes iOS PWA prototype into the first useful, shippable Fi UI
 
 - Stack: Vite SPA with React 18, TypeScript, TailwindCSS v4, Framer Motion, vite-plugin-pwa.
 - Entry: `src/main.tsx` mounts `src/App.tsx`.
-- API layer: `src/services/api.ts` starts/stops runs, consumes SSE with `fetch`, and fetches usage JSON.
-- State layer: `src/hooks/useHermes.ts` owns chat messages, current run, stream lifecycle, run interruption, and error state.
-- UI shell: `src/App.tsx` renders the Fi header, message timeline, collapsible VPS execution rows, running tool chip, error panel, native textarea prompt composer, and compact usage pill.
-- Extra components: `SettingsModal` and `UsageWidget` exist, but the current `App.tsx` does not render them.
+- API layer: the active Hermes path is `src/services/hermesTransport.ts` + `src/services/hermesGateway.ts` for WebSocket JSON-RPC, with `src/services/hermesRest.ts` for REST/SSE fallback. `src/services/api.ts` remains as deprecated legacy run/thread code and current usage JSON fetch source.
+- State layer: `src/state/hermesEventReducer.ts` owns pure session/chat/event reduction; `src/hooks/useHermes.ts` is the React compatibility facade consumed by `App.tsx`.
+- UI shell: `src/App.tsx` renders the Fi header, message timeline, compact tool status/work trace, error panel, native textarea prompt composer, compact usage pill, sessions dialog, control center dialog, notification sheet, and blocking prompt dialog.
+- Extra components: `SettingsModal` and `UsageWidget` exist as legacy/disconnected surfaces; the current shell uses dialog components under `src/components/dialogs/` and direct usage polling in `App.tsx`.
 - PWA config: `vite.config.ts` enables auto-updating service worker, standalone portrait manifest, favicon assets, and dev proxies for `/api` and `/usage-api`.
 - iOS viewport: `index.html`, `src/index.css`, and `App.tsx` lock scaling, safe areas, fixed body, visual viewport height, and scroll reset.
-- Tests: `tests/README.md` is placeholder only. No test runner is configured.
+- Tests: `scripts/check-hermes-events.ts` runs fixture-backed reducer smoke checks against `tests/fixtures/hermes-events/`. No full test runner is configured.
 
 ## Known Gaps / Risks
 
-- `SettingsModal` is disconnected, so model selection is currently hard-coded to `deepseek-v4-flash`.
+- `SettingsModal` is disconnected. Model/config controls are moving into the Hermes control center path.
 - `UsageWidget` is disconnected; the collapsed composer only shows balance when `App.tsx` silently fetches usage.
-- `API_URL` and `API_TOKEN` have client-side fallback values. Decide whether this is acceptable for a PWA or move auth behind a safer gateway pattern.
+- Regular Hermes token config is browser-visible through Vite env; acceptable only for private owner devices unless a safer gateway/proxy pattern is added.
+- `src/services/api.ts` still contains legacy run/thread endpoints and fallback token assumptions; keep it isolated until usage fetching is moved and old code is removed.
 - Usage fetch uses `/usage-api/usage.json`; dev proxy exists, but production routing/CORS behavior needs verification.
-- Tool completion maps every running tool with the same name, not just the latest matching activity. Repeated same-name tools may update incorrectly.
-- SSE parsing ignores non-`data:` event fields and malformed final chunks. Good enough for current contract, but needs fixture tests.
+- Tool lifecycle is now reduced from Hermes `tool.*` events, with fixture smoke coverage. Continue hardening repeated/orphan tool matching against real payloads.
+- SSE fallback exists in `src/services/hermesRest.ts`; WebSocket JSON-RPC is primary.
 - Serena project config lists only `bash`, so TypeScript symbol navigation is currently unavailable.
 
 ## Steps
@@ -62,7 +63,7 @@ Turn the current Hermes iOS PWA prototype into the first useful, shippable Fi UI
    - Verify production usage endpoint path and CORS behavior.
 
 3. Stabilize stream and tool lifecycle
-   - Add fixtures or tests for run creation, message deltas, tool start/complete, run failure, and stop.
+   - Add fixtures or tests for session creation/resume, message deltas, tool start/complete, failure/error, and stop/interrupt.
    - Fix repeated same-name tool completion if real Hermes can emit parallel/repeated tools.
 
 4. Validate iOS PWA behavior
@@ -71,7 +72,7 @@ Turn the current Hermes iOS PWA prototype into the first useful, shippable Fi UI
 
 5. Update docs
    - Refresh `docs/architecture/index.md` if components are connected or removed.
-   - Add real build/test commands to `docs/quality.md` once test tooling exists.
+   - Keep real build/smoke commands current in `docs/quality.md` as tooling changes.
    - Move this plan to `completed/` only after validation passes.
 
 ## Validation
@@ -129,3 +130,4 @@ Note: `bun run lint` is declared, but ESLint dependencies/config have not been v
 - 2026-05-23: Removed extra mobile bottom padding for the prompt/pill while preserving larger desktop safe-area spacing.
 - 2026-05-23: Replaced favicon/PWA icon with a black square Fi wordmark using Fraunces/serif typography and renamed manifest/app title to Fi.
 - 2026-05-23: Researched PWA notifications; added Notifications menu with support detection, permission request, service-worker-ready local notification test, HTTPS/service-worker checks, and iOS installed-PWA guidance.
+- 2026-05-24: Hermes Web API migration superseded the old run/thread path for primary chat transport; docs now point to WebSocket JSON-RPC services, the pure event reducer, dialog sheets, and fixture-backed event smoke checks.

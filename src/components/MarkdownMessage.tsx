@@ -1,4 +1,5 @@
 import { Fragment, memo, ReactNode, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Code, Table2, X } from 'lucide-react';
 
@@ -335,7 +336,10 @@ export const MarkdownMessage = memo(function MarkdownMessage({ content }: Markdo
           </Fragment>
         ))}
       </div>
-      {preview && <MarkdownPreviewDialog preview={preview} onClose={() => setPreview(null)} />}
+      {preview && createPortal(
+        <MarkdownPreviewDialog preview={preview} onClose={() => setPreview(null)} />,
+        document.body
+      )}
     </>
   );
 });

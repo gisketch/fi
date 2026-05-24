@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 coverage/
+refs/
 
 # sonata:block=context-tools:start
 # Local agent/runtime noise

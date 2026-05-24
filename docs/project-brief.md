@@ -26,18 +26,19 @@ Managing a VPS agent via terminal or CLI on mobile is extremely cumbersome, lack
 A fully working standalone iOS PWA with:
 - Glassmorphism UI styling optimized for Safari standalone notch offsets and touch dynamics.
 - Connection settings drawer.
-- In-bubble collapsible tool activity feeds displaying live execution deltas (SSE runs).
+- In-bubble tool activity feeds displaying live Hermes Web API events.
 - Live DeepSeek currency tracking and Codex limit metrics widget.
 
 ## Acceptance Criteria
 
 - User can:
   - Securely send prompts to the Hermes.dev VPS endpoint.
-  - View real-time SSE token stream responses.
+  - View real-time WebSocket token stream responses with REST/SSE fallback paths available in the service layer.
   - Expand/collapse individual tool activities to see duration and command inputs.
   - View resource balances and limits on the system status card.
 - System must:
-  - Securely inject authorization headers using environment configurations (`.env`).
+  - Configure Hermes endpoint and regular token through environment variables (`.env`), with the caveat that Vite client env values are browser-visible.
+  - Keep admin-token writes behind a private proxy path; never ship `HERMES_WEB_ADMIN_TOKEN` to the browser.
   - Enforce viewport zoom prevention on input focus (`maximum-scale=1.0`).
 - Project is not done until:
   - It builds clean on standard Bun environment.
@@ -47,4 +48,4 @@ A fully working standalone iOS PWA with:
 
 - **Package manager**: bun
 - **Performance**: Instant touch feedbacks, zero input lag, smooth bottom sheet physics.
-- **Data**: State preserved locally in React hooks memory.
+- **Data**: Active Hermes session id is persisted in `localStorage`; chat/session state is held in React reducer state and rehydrated through Hermes session resume/history.
