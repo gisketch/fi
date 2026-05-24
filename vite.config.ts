@@ -62,7 +62,11 @@ export default defineConfig({
       '/terminal-gateway': {
         target: 'https://fi-terminal.gisketch.com',
         changeOrigin: true,
+        secure: true,
         ws: true,
+        headers: {
+          Origin: 'https://fi-web.gisketch.com',
+        },
         rewrite: (path) => path.replace(/^\/terminal-gateway/, ''),
       }
     }
