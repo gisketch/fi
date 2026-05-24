@@ -9,9 +9,11 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const title = payload.title || 'Fi';
+  const rawTitle = String(payload.title || 'Fi').trim();
+  const title = /^from\s+fi$/i.test(rawTitle) || /^fi\s+is\s+ready$/i.test(rawTitle) ? 'Fi' : rawTitle;
+  const body = String(payload.body || 'New update.').replace(/^from\s+fi\s*[\r\n]+/i, '').trim();
   const options = {
-    body: payload.body || 'New update from Fi.',
+    body: body || 'New update.',
     icon: payload.icon || '/icons/fi-icon-192.png',
     badge: payload.badge || '/icons/fi-icon-192.png',
     tag: payload.tag || 'fi-push',

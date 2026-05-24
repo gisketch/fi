@@ -94,7 +94,7 @@ export async function enableNotifications(): Promise<string> {
     throw new Error(errorPayload?.error || 'Failed to store push subscription.');
   }
 
-  await registration.showNotification('Fi is ready', {
+  await registration.showNotification('Fi', {
     body: 'Notifications are enabled for this PWA.',
     icon: '/icons/fi-icon-192.png',
     badge: '/icons/fi-icon-192.png',

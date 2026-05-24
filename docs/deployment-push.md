@@ -59,7 +59,8 @@ curl -X POST https://dulcet-naiad-d96d5a.netlify.app/push-api/send \
 Payload fields:
 
 - `title`: notification title, defaults to `Fi`.
-- `body`: notification body.
+- `body`: notification body, defaults to `New update.`.
+- Do not prefix the body with `from Fi`; Fi strips that redundant line before delivery.
 - `url`: page opened when the notification is tapped.
 - `tag`: browser notification replacement/grouping tag.
 - `icon` and `badge`: optional icon paths; defaults use Fi PNG icons.

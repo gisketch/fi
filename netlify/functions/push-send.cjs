@@ -25,9 +25,11 @@ exports.handler = async (event) => {
     initBlobs(event);
     requireVapidKeys();
     const body = parseJsonBody(event);
+    const rawTitle = String(body.title || 'Fi').trim();
+    const rawBody = String(body.body || 'New update.').replace(/^from\s+fi\s*[\r\n]+/i, '').trim();
     const payload = {
-      title: body.title || 'Fi',
-      body: body.body || 'New update from Fi.',
+      title: /^from\s+fi$/i.test(rawTitle) || /^fi\s+is\s+ready$/i.test(rawTitle) ? 'Fi' : rawTitle,
+      body: rawBody || 'New update.',
       url: body.url || '/',
       tag: body.tag || 'fi-push',
       icon: body.icon || '/icons/fi-icon-192.png',

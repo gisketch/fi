@@ -158,6 +158,7 @@ Fields:
 
 - `title`: notification title.
 - `body`: notification body.
+- Do not prefix the body with `from Fi`; Fi strips that redundant line before delivery.
 - `url`: path opened when the notification is tapped.
 - `tag`: browser grouping/replacement key.
 - `icon`: optional icon path.
