@@ -70,6 +70,18 @@ type SlashCommandOption = {
   score: number;
 };
 
+type ContextCompletionItem = {
+  text: string;
+  display: string;
+  meta: string;
+};
+
+type ContextCompletionToken = {
+  word: string;
+  start: number;
+  end: number;
+};
+
 const uniqueSlashCommands = (commands: SlashCommandOption[]) => {
   const seen = new Set<string>();
   return commands.filter((option) => {
@@ -156,6 +168,54 @@ const getSlashSuggestions = (commands: SlashCommandOption[], value: string) => {
     .filter((option) => option.score > 0)
     .sort((a, b) => b.score - a.score || a.command.localeCompare(b.command))
     .slice(0, 8);
+};
+
+const stringifyDisplay = (display: unknown, fallback: string) => {
+  if (typeof display === 'string') return display;
+  if (Array.isArray(display)) {
+    return display
+      .flatMap((part) => Array.isArray(part) ? part : [part])
+      .map((part) => String(part || ''))
+      .join('') || fallback;
+  }
+  return fallback;
+};
+
+const normalizeContextCompletions = (payload: any): ContextCompletionItem[] => {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  return items
+    .map((item: any) => {
+      const text = String(item?.text || item?.value || '');
+      if (!text) return null;
+      return {
+        text,
+        display: stringifyDisplay(item?.display, text),
+        meta: String(item?.meta || ''),
+      };
+    })
+    .filter((item: ContextCompletionItem | null): item is ContextCompletionItem => Boolean(item));
+};
+
+const isContextCompletionWord = (word: string) => {
+  if (!word) return false;
+  return word.startsWith('@')
+    || word.startsWith('./')
+    || word.startsWith('../')
+    || word.startsWith('~/')
+    || word.includes('/');
+};
+
+const getContextCompletionToken = (value: string, cursor: number): ContextCompletionToken | null => {
+  const safeCursor = Math.max(0, Math.min(cursor, value.length));
+  let start = safeCursor;
+  let end = safeCursor;
+
+  while (start > 0 && !/\s/.test(value[start - 1])) start -= 1;
+  while (end < value.length && !/\s/.test(value[end])) end += 1;
+
+  const word = value.slice(start, end);
+  if (!isContextCompletionWord(word)) return null;
+  return { word, start, end };
 };
 
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
@@ -559,12 +619,19 @@ export default function App() {
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
   const [slashCommandsError, setSlashCommandsError] = useState<string | null>(null);
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [composerCursor, setComposerCursor] = useState(0);
+  const [contextCompletions, setContextCompletions] = useState<ContextCompletionItem[]>([]);
+  const [contextCompletionLoading, setContextCompletionLoading] = useState(false);
+  const [contextCompletionError, setContextCompletionError] = useState<string | null>(null);
+  const [selectedContextIndex, setSelectedContextIndex] = useState(0);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const slashSuggestions = getSlashSuggestions(slashCommands, inputValue);
   const slashToken = getSlashToken(inputValue);
   const isSlashPrompt = Boolean(slashToken);
+  const contextCompletionToken = isSlashPrompt ? null : getContextCompletionToken(inputValue, composerCursor);
+  const isContextCompletionPrompt = Boolean(contextCompletionToken);
 
   // Sync usage balance silently in background
   useEffect(() => {
@@ -715,6 +782,48 @@ export default function App() {
     setSelectedSlashIndex(0);
   }, [inputValue, slashCommands.length]);
 
+  useEffect(() => {
+    if (!isPromptExpanded || !contextCompletionToken) {
+      setContextCompletions([]);
+      setContextCompletionLoading(false);
+      setContextCompletionError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setContextCompletionLoading(true);
+    setContextCompletionError(null);
+
+    const loadContextCompletions = async () => {
+      try {
+        const completion = await withTimeout(
+          HermesGateway.completePath(contextCompletionToken.word),
+          4000,
+          'Context completion'
+        );
+        if (cancelled) return;
+        setContextCompletions(normalizeContextCompletions(completion));
+      } catch (e) {
+        if (!cancelled) {
+          setContextCompletions([]);
+          setContextCompletionError(e instanceof Error ? e.message : 'Failed to load context completions');
+        }
+      } finally {
+        if (!cancelled) setContextCompletionLoading(false);
+      }
+    };
+
+    void loadContextCompletions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPromptExpanded, contextCompletionToken?.word]);
+
+  useEffect(() => {
+    setSelectedContextIndex(0);
+  }, [contextCompletionToken?.word, contextCompletions.length]);
+
   const loadModelOptions = async () => {
     try {
       const res = await HermesGateway.getModelOptions(currentThreadId || undefined);
@@ -781,6 +890,29 @@ export default function App() {
     });
   };
 
+  const selectContextCompletion = (item: ContextCompletionItem, appendSpace = !item.text.endsWith('/')) => {
+    if (!contextCompletionToken) return false;
+
+    const suffix = appendSpace ? ' ' : '';
+    const nextValue = `${inputValue.slice(0, contextCompletionToken.start)}${item.text}${suffix}${inputValue.slice(contextCompletionToken.end)}`;
+    const cursor = contextCompletionToken.start + item.text.length + suffix.length;
+    setInputValue(nextValue);
+    setComposerCursor(cursor);
+    setContextCompletions([]);
+
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(cursor, cursor);
+    });
+    return true;
+  };
+
+  const completeContextSelection = () => {
+    const selected = contextCompletions[selectedContextIndex] || contextCompletions[0];
+    if (!selected) return false;
+    return selectContextCompletion(selected);
+  };
+
   const handleSend = () => {
     if (!inputValue.trim() || isRunning) return;
     const text = inputValue.trim();
@@ -795,6 +927,8 @@ export default function App() {
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    setComposerCursor(event.currentTarget.selectionStart);
+
     if (isSlashPrompt && slashSuggestions.length > 0) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -817,6 +951,32 @@ export default function App() {
       if (event.key === ' ' && slashToken && slashToken !== (slashSuggestions[selectedSlashIndex] || slashSuggestions[0])?.command) {
         event.preventDefault();
         completeSlashSelection(true);
+        return;
+      }
+    }
+
+    if (isContextCompletionPrompt && contextCompletions.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setSelectedContextIndex((index) => (index + 1) % contextCompletions.length);
+        return;
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setSelectedContextIndex((index) => (index - 1 + contextCompletions.length) % contextCompletions.length);
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        completeContextSelection();
+        return;
+      }
+
+      if (event.key === ' ' && contextCompletionToken?.word !== (contextCompletions[selectedContextIndex] || contextCompletions[0])?.text) {
+        event.preventDefault();
+        completeContextSelection();
         return;
       }
     }
@@ -1260,6 +1420,33 @@ export default function App() {
               ))}
             </div>
           )}
+          {isPromptExpanded && !isSlashPrompt && isContextCompletionPrompt && (contextCompletionLoading || contextCompletionError || contextCompletions.length > 0) && (
+            <div className="absolute bottom-[calc(100%+0.5rem)] left-0 right-0 z-50 max-h-[260px] overflow-y-auto rounded-[22px] border border-white/[0.08] bg-neutral-950/95 p-1 shadow-2xl backdrop-blur-xl no-scrollbar">
+              {contextCompletionLoading && (
+                <div className="px-3 py-2 font-mono text-[11px] text-neutral-500">Loading context...</div>
+              )}
+              {contextCompletionError && !contextCompletionLoading && (
+                <div className="px-3 py-2 font-mono text-[11px] text-red-300/70">{contextCompletionError}</div>
+              )}
+              {!contextCompletionLoading && !contextCompletionError && contextCompletions.map((item, index) => (
+                <button
+                  key={`${item.text}-${index}`}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setSelectedContextIndex(index);
+                    selectContextCompletion(item);
+                  }}
+                  className={`flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition-colors ${
+                    index === selectedContextIndex ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]'
+                  }`}
+                >
+                  <span className="w-[156px] shrink-0 truncate font-mono text-[12px] text-zinc-200">{item.display}</span>
+                  <span className="min-w-0 flex-1 truncate font-sans-hermes text-[12px] leading-5 text-neutral-500">{item.meta}</span>
+                </button>
+              ))}
+            </div>
+          )}
           
           <div
             className={`ethereal-card shadow-2xl relative mx-auto overflow-hidden rounded-[24px] ${
@@ -1314,8 +1501,14 @@ export default function App() {
                 ref={textareaRef}
                 rows={1}
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  setComposerCursor(e.target.selectionStart);
+                }}
                 onKeyDown={handleComposerKeyDown}
+                onKeyUp={(e) => setComposerCursor(e.currentTarget.selectionStart)}
+                onClick={(e) => setComposerCursor(e.currentTarget.selectionStart)}
+                onSelect={(e) => setComposerCursor(e.currentTarget.selectionStart)}
                 placeholder="Ask Fi..."
                 wrap="soft"
                 className="w-full bg-transparent border-none outline-none text-[15px] font-light text-white placeholder-neutral-500 resize-none font-sans-hermes no-scrollbar min-h-[26px] max-h-32 pr-2 leading-relaxed caret-white select-text overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words"

@@ -1043,3 +1043,4 @@ bun scripts/smoke-hermes-api.mjs
 - 2026-05-24: Verified the provided token value was not written to the plan and re-ran `./scripts/check-sonata.sh` (`sonata ok`).
 - 2026-05-24: Synced Sonata docs with current code: architecture, project brief, quality gates, config env contract, tests README, source README, API reference pointer, and this implementation progress snapshot.
 - 2026-05-24: Added composer slash command support backed by Hermes `commands.catalog`, local fuzzy ranking, Space/Tab completion, and `slash.exec` execution.
+- 2026-05-24: Added composer `@`/path context completion through Hermes WS `complete.path` with `{ word }`, matching TUI-style context insertion.

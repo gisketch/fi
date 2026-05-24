@@ -132,8 +132,8 @@ export class HermesGateway {
   }
 
   // --- Completion ---
-  public static async completePath(text: string, cwd?: string): Promise<{ items: Array<{ value: string; [key: string]: any }> }> {
-    return hermesTransport.request('complete.path', { text, cwd });
+  public static async completePath(word: string, cwd?: string): Promise<{ items: Array<{ text?: string; value?: string; display?: any; meta?: string; [key: string]: any }> }> {
+    return hermesTransport.request('complete.path', { word, cwd });
   }
 
   public static async completeSlash(text: string): Promise<{ items: Array<{ value: string; [key: string]: any }> }> {
