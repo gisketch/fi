@@ -410,8 +410,8 @@ const ToolSegmentLine = memo(({ group, tools, onOpen, className, reduceMotion }:
       className={`hover:text-neutral-300 font-serif-hermes text-[15px] italic text-neutral-400 cursor-pointer flex items-center gap-2 outline-none select-none active:scale-[0.99] text-left ${failed ? 'text-red-300/70' : ''} ${active ? '' : 'opacity-70'} ${className || ''}`}
       aria-label={`Open work trace with ${tools.length} tool calls`}
     >
-      <Code className={`w-3.5 h-3.5 text-neutral-500 shrink-0 ${active && !reduceMotion ? 'animate-pulse' : ''}`} />
-      <ToolStatusText text={formatToolGroupLabel(group)} active={active} reduceMotion={reduceMotion} />
+      <Code className={`w-3.5 h-3.5 text-neutral-500 shrink-0 ${active ? 'animate-pulse fi-motion-pulse' : ''}`} />
+      <ToolStatusText text={formatToolGroupLabel(group)} active={active} reduceMotion={false} />
     </motion.button>
   );
 });
@@ -446,7 +446,6 @@ const FiPendingIndicator = memo(({ reduceMotion }: { reduceMotion: boolean }) =>
   const spinnerFramesRef = useRef(spinnerStyles[Math.floor(Math.random() * spinnerStyles.length)]);
 
   useEffect(() => {
-    if (reduceMotion) return;
     const timer = setInterval(() => {
       setFrame((f) => (f + 1) % spinnerFramesRef.current.length);
     }, 80);
@@ -454,7 +453,6 @@ const FiPendingIndicator = memo(({ reduceMotion }: { reduceMotion: boolean }) =>
   }, [reduceMotion]);
 
   useEffect(() => {
-    if (reduceMotion) return;
     // Cycle text message every 1.5s
     const msgTimer = setInterval(() => {
       setMessage(fiLoadingMessages[Math.floor(Math.random() * fiLoadingMessages.length)]);
@@ -474,10 +472,10 @@ const FiPendingIndicator = memo(({ reduceMotion }: { reduceMotion: boolean }) =>
       })}
       className="flex items-center gap-3 pt-2 select-none font-serif-hermes text-[15px] italic text-neutral-400"
     >
-      <span className={`font-mono text-[17px] text-white/70 h-5 ${widthClass} flex items-center justify-center ${reduceMotion ? '' : 'animate-pulse'}`}>
-        {reduceMotion ? '>' : spinnerFramesRef.current[frame]}
+      <span className={`font-mono text-[17px] text-white/70 h-5 ${widthClass} flex items-center justify-center animate-pulse fi-motion-pulse`}>
+        {spinnerFramesRef.current[frame]}
       </span>
-      <span className={reduceMotion ? '' : 'animate-pulse'}>{reduceMotion ? 'Working...' : message}</span>
+      <span className="animate-pulse fi-motion-pulse">{message}</span>
     </motion.div>
   );
 });
@@ -670,7 +668,7 @@ const AppearanceDialog = ({ settings, onChange, onClose }: {
               <span className="min-w-0">
                 <span className="block font-sans-hermes text-[13px] font-medium text-zinc-200">Less Animation</span>
                 <span className="mt-1 block font-sans-hermes text-[12px] leading-relaxed text-neutral-500">
-                  Removes blur, disables pulses/transitions, and renders chat text as plain instant text for faster typing in long sessions.
+                  Removes blur and heavy chat transitions while keeping tool-call pulse, spinner, and status message motion.
                 </span>
               </span>
             </span>

@@ -67,6 +67,10 @@ body {
   -webkit-backdrop-filter: none;
 }
 
+[data-motion-mode="less"] .fi-motion-pulse {
+  animation: var(--animate-pulse) !important;
+}
+
 /* iOS Standalone Momentum Scrollable */
 .ios-scrollable {
   overflow-y: auto;
