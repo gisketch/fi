@@ -1,3 +1,9 @@
+const cleanNotificationText = (value, fallback = '') => {
+  return String(value || fallback)
+    .replace(/^[\s"']*from\s+fi\b[\s"':,\-.]*/i, '')
+    .trim();
+};
+
 self.addEventListener('push', (event) => {
   let payload = {};
 
@@ -9,9 +15,9 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const rawTitle = String(payload.title || 'Fi').trim();
+  const rawTitle = cleanNotificationText(payload.title, 'Fi');
   const title = /^from\s+fi$/i.test(rawTitle) || /^fi\s+is\s+ready$/i.test(rawTitle) ? 'Fi' : rawTitle;
-  const body = String(payload.body || 'New update.').replace(/^from\s+fi\s*[\r\n]+/i, '').trim();
+  const body = cleanNotificationText(payload.body, 'New update.');
   const options = {
     body: body || 'New update.',
     icon: payload.icon || '/icons/fi-icon-192.png',

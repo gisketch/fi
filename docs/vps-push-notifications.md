@@ -158,7 +158,7 @@ Fields:
 
 - `title`: notification title.
 - `body`: notification body.
-- Do not prefix the body with `from Fi`; Fi strips that redundant line before delivery.
+- Do not prefix the title or body with `from Fi`; Fi strips that redundant sender text before delivery. iOS may still render its own `from <app name>` attribution line.
 - `url`: path opened when the notification is tapped.
 - `tag`: browser grouping/replacement key.
 - `icon`: optional icon path.

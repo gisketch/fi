@@ -60,7 +60,7 @@ Payload fields:
 
 - `title`: notification title, defaults to `Fi`.
 - `body`: notification body, defaults to `New update.`.
-- Do not prefix the body with `from Fi`; Fi strips that redundant line before delivery.
+- Do not prefix the title or body with `from Fi`; Fi strips that redundant sender text before delivery. iOS may still render its own `from <app name>` attribution line.
 - `url`: page opened when the notification is tapped.
 - `tag`: browser notification replacement/grouping tag.
 - `icon` and `badge`: optional icon paths; defaults use Fi PNG icons.

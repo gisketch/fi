@@ -10,6 +10,12 @@ const {
   webpush,
 } = require('./lib/push-common.cjs');
 
+const cleanNotificationText = (value, fallback = '') => {
+  return String(value || fallback)
+    .replace(/^[\s"']*from\s+fi\b[\s"':,\-.]*/i, '')
+    .trim();
+};
+
 exports.handler = async (event) => {
   const optionsResponse = handleOptions(event);
   if (optionsResponse) return optionsResponse;
@@ -25,8 +31,8 @@ exports.handler = async (event) => {
     initBlobs(event);
     requireVapidKeys();
     const body = parseJsonBody(event);
-    const rawTitle = String(body.title || 'Fi').trim();
-    const rawBody = String(body.body || 'New update.').replace(/^from\s+fi\s*[\r\n]+/i, '').trim();
+    const rawTitle = cleanNotificationText(body.title, 'Fi');
+    const rawBody = cleanNotificationText(body.body, 'New update.');
     const payload = {
       title: /^from\s+fi$/i.test(rawTitle) || /^fi\s+is\s+ready$/i.test(rawTitle) ? 'Fi' : rawTitle,
       body: rawBody || 'New update.',
