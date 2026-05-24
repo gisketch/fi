@@ -911,6 +911,7 @@ function AppShell() {
     if (!currentThreadId) {
       setSessionUsage(null);
     }
+    if (connectionStatus !== 'connected') return;
 
     let cancelled = false;
 

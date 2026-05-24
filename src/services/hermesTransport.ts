@@ -19,7 +19,8 @@ class HermesTransport {
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
   private connectionAttemptId = 0;
-  private isConnecting = false;
+  private connectPromise: Promise<void> | null = null;
+  private connectReject: ((error: Error) => void) | null = null;
   private explicitlyClosed = false;
 
   public latestReadyEvent: GatewayEvent | null = null;
@@ -35,47 +36,83 @@ class HermesTransport {
     }
 
     this.explicitlyClosed = false;
-    if (this.isConnecting) {
-      return Promise.resolve(); // connection in progress
+    if (this.connectPromise) {
+      return this.connectPromise;
     }
 
-    this.isConnecting = true;
     this.notifyStatus('connecting');
 
-    return new Promise(async (resolve, reject) => {
+    this.connectPromise = new Promise(async (resolve, reject) => {
       const attemptId = this.connectionAttemptId + 1;
       this.connectionAttemptId = attemptId;
+      let opened = false;
+      let settled = false;
+      let connectTimeout: number | null = null;
+
+      const settleResolve = () => {
+        if (settled) return;
+        settled = true;
+        if (connectTimeout) window.clearTimeout(connectTimeout);
+        this.connectPromise = null;
+        this.connectReject = null;
+        resolve();
+      };
+
+      const settleReject = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        if (connectTimeout) window.clearTimeout(connectTimeout);
+        this.connectPromise = null;
+        this.connectReject = null;
+        reject(error);
+      };
+
+      this.connectReject = settleReject;
+
       try {
         const token = await getHermesWebToken();
         if (attemptId !== this.connectionAttemptId || this.explicitlyClosed) {
-          this.isConnecting = false;
+          settleReject(new Error('WebSocket connection was cancelled'));
           return;
         }
         const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
         const url = `${HERMES_WS_URL}${tokenParam}`;
         
         console.log(`Connecting to Hermes WebSocket: ${HERMES_WS_URL}`);
-        this.ws = new WebSocket(url);
+        const socket = new WebSocket(url);
+        this.ws = socket;
 
-        this.ws.onopen = () => {
+        connectTimeout = window.setTimeout(() => {
+          if (attemptId !== this.connectionAttemptId || opened) return;
+          try {
+            socket.close();
+          } catch {
+            // no-op
+          }
+          settleReject(new Error('WebSocket connection timed out'));
+        }, 15000);
+
+        socket.onopen = () => {
           if (attemptId !== this.connectionAttemptId) return;
+          opened = true;
           console.log('Hermes WebSocket connected.');
-          this.isConnecting = false;
           this.reconnectDelay = 1000;
           this.notifyStatus('connected');
-          resolve();
+          settleResolve();
         };
 
-        this.ws.onmessage = (event) => {
+        socket.onmessage = (event) => {
           if (attemptId !== this.connectionAttemptId) return;
           this.handleMessage(event.data);
         };
 
-        this.ws.onclose = (event) => {
+        socket.onclose = (event) => {
           if (attemptId !== this.connectionAttemptId) return;
           console.log(`Hermes WebSocket closed. Code: ${event.code}, Clean: ${event.wasClean}`);
-          this.isConnecting = false;
-          this.ws = null;
+          if (this.ws === socket) this.ws = null;
+          if (!opened) {
+            settleReject(new Error(`WebSocket closed before opening (${event.code})`));
+          }
           this.notifyStatus('disconnected');
           
           if (!this.explicitlyClosed) {
@@ -83,17 +120,16 @@ class HermesTransport {
           }
         };
 
-        this.ws.onerror = (err) => {
+        socket.onerror = (err) => {
           if (attemptId !== this.connectionAttemptId) return;
           console.error('Hermes WebSocket error:', err);
-          this.isConnecting = false;
-          reject(err);
         };
       } catch (e) {
-        this.isConnecting = false;
-        reject(e);
+        settleReject(e instanceof Error ? e : new Error('WebSocket connection failed'));
       }
     });
+
+    return this.connectPromise;
   }
 
   public disconnect() {
@@ -103,11 +139,13 @@ class HermesTransport {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    this.connectReject?.(new Error('WebSocket connection was closed'));
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
-    this.isConnecting = false;
+    this.connectPromise = null;
+    this.connectReject = null;
     this.notifyStatus('disconnected');
   }
 
