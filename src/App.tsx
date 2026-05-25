@@ -449,21 +449,27 @@ const menuItemPresence = (index: number) => ({
   transition: { duration: 0.16, delay: 0.025 * index },
 });
 
-const CharacterEntranceText = memo(({ text, reduceMotion }: { text: string; reduceMotion: boolean }) => (
-  <span aria-label={text} className="whitespace-pre-wrap break-words">
-    {Array.from(text).map((char, index) => (
-      <motion.span
-        key={`${char}-${index}`}
-        aria-hidden="true"
-        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, filter: 'blur(6px)' }}
-        animate={{ opacity: 1, filter: 'blur(0px)' }}
-        transition={{ duration: 0.28, delay: Math.min(index * 0.008, 0.35), ease: 'easeOut' }}
-      >
-        {char}
-      </motion.span>
-    ))}
-  </span>
-));
+const CharacterEntranceText = memo(({ text, reduceMotion, animateText = false }: { text: string; reduceMotion: boolean; animateText?: boolean }) => {
+  if (!animateText) {
+    return <span className="whitespace-pre-wrap break-words">{text}</span>;
+  }
+
+  return (
+    <span aria-label={text} className="whitespace-pre-wrap break-words">
+      {Array.from(text).map((char, index) => (
+        <motion.span
+          key={`${char}-${index}`}
+          aria-hidden="true"
+          initial={reduceMotion ? { opacity: 0 } : { opacity: 0, filter: 'blur(6px)' }}
+          animate={{ opacity: 1, filter: 'blur(0px)' }}
+          transition={{ duration: 0.28, delay: Math.min(index * 0.008, 0.35), ease: 'easeOut' }}
+        >
+          {char}
+        </motion.span>
+      ))}
+    </span>
+  );
+});
 CharacterEntranceText.displayName = 'CharacterEntranceText';
 
 const ToolStatusText = memo(({ text, active, reduceMotion }: { text: string; active: boolean; reduceMotion: boolean }) => {
@@ -1687,7 +1693,12 @@ function AppShell() {
                 const body = <ChatMessageItem msg={msg} reduceMotion={reduceMotion} />;
 
                 return shouldVirtualize ? (
-                  <VirtualMessage key={msg.id} rootRef={chatContainerRef} estimate={msg.role === 'user' ? 64 : 180}>
+                  <VirtualMessage
+                    key={msg.id}
+                    rootRef={chatContainerRef}
+                    estimate={msg.role === 'user' ? 64 : 180}
+                    measureKey={`${msg.id}:${msg.content.length}:${msg.segments.length}:${msg.status}`}
+                  >
                     {body}
                   </VirtualMessage>
                 ) : (

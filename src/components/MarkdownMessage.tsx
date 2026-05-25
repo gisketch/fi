@@ -1,4 +1,4 @@
-import { Fragment, memo, ReactNode, useState } from 'react';
+import { Fragment, memo, ReactNode, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Code, Maximize2, Table2, X } from 'lucide-react';
@@ -6,6 +6,7 @@ import { Code, Maximize2, Table2, X } from 'lucide-react';
 interface MarkdownMessageProps {
   content: string;
   reduceMotion?: boolean;
+  animateText?: boolean;
 }
 
 type TextBlock = { type: 'text'; lines: string[] };
@@ -82,7 +83,9 @@ const parseBlocks = (content: string): Block[] => {
   return blocks;
 };
 
-const renderAnimatedText = (text: string, keyPrefix: string, reduceMotion: boolean): ReactNode[] => {
+const renderAnimatedText = (text: string, keyPrefix: string, reduceMotion: boolean, animateText: boolean): ReactNode[] => {
+  if (!animateText) return [text];
+
   return (
   Array.from(text).map((char, index) => (
     <motion.span
@@ -97,7 +100,7 @@ const renderAnimatedText = (text: string, keyPrefix: string, reduceMotion: boole
   );
 };
 
-const renderInlineMarkdown = (text: string, keyPrefix: string, reduceMotion: boolean): ReactNode[] => {
+const renderInlineMarkdown = (text: string, keyPrefix: string, reduceMotion: boolean, animateText: boolean): ReactNode[] => {
   const parts: ReactNode[] = [];
   const pattern = /(\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|_[^_]+_)/g;
   let lastIndex = 0;
@@ -105,7 +108,7 @@ const renderInlineMarkdown = (text: string, keyPrefix: string, reduceMotion: boo
 
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(...renderAnimatedText(text.slice(lastIndex, match.index), `${keyPrefix}-${lastIndex}`, reduceMotion));
+      parts.push(...renderAnimatedText(text.slice(lastIndex, match.index), `${keyPrefix}-${lastIndex}`, reduceMotion, animateText));
     }
 
     const token = match[0];
@@ -152,15 +155,17 @@ const renderInlineMarkdown = (text: string, keyPrefix: string, reduceMotion: boo
   }
 
   if (lastIndex < text.length) {
-    parts.push(...renderAnimatedText(text.slice(lastIndex), `${keyPrefix}-${lastIndex}`, reduceMotion));
+    parts.push(...renderAnimatedText(text.slice(lastIndex), `${keyPrefix}-${lastIndex}`, reduceMotion, animateText));
   }
 
   return parts;
 };
 
-const renderInline = (text: string, keyPrefix: string, reduceMotion: boolean) => renderInlineMarkdown(text, keyPrefix, reduceMotion);
+const renderInline = (text: string, keyPrefix: string, reduceMotion: boolean, animateText: boolean) => (
+  renderInlineMarkdown(text, keyPrefix, reduceMotion, animateText)
+);
 
-const renderTextLine = (line: string, key: string, reduceMotion: boolean) => {
+const renderTextLine = (line: string, key: string, reduceMotion: boolean, animateText: boolean) => {
   if (!line.trim()) {
     return <div key={key} className="h-3" />;
   }
@@ -170,7 +175,7 @@ const renderTextLine = (line: string, key: string, reduceMotion: boolean) => {
     const weight = heading[1].length <= 2 ? 'font-semibold text-zinc-100' : 'font-medium text-zinc-200';
     return (
       <div key={key} className={`${weight} mt-3 first:mt-0 break-words`}>
-        {renderInline(heading[2], key, reduceMotion)}
+        {renderInline(heading[2], key, reduceMotion, animateText)}
       </div>
     );
   }
@@ -179,7 +184,7 @@ const renderTextLine = (line: string, key: string, reduceMotion: boolean) => {
   if (quote) {
     return (
       <div key={key} className="my-2 border-l border-white/10 pl-3 text-zinc-400 break-words">
-        {renderInline(quote[1], key, reduceMotion)}
+        {renderInline(quote[1], key, reduceMotion, animateText)}
       </div>
     );
   }
@@ -189,7 +194,7 @@ const renderTextLine = (line: string, key: string, reduceMotion: boolean) => {
     return (
       <div key={key} className="flex gap-2 break-words">
         <span className="mt-[0.05em] text-zinc-600">•</span>
-        <span className="min-w-0 break-words">{renderInline(unordered[1], key, reduceMotion)}</span>
+        <span className="min-w-0 break-words">{renderInline(unordered[1], key, reduceMotion, animateText)}</span>
       </div>
     );
   }
@@ -199,7 +204,7 @@ const renderTextLine = (line: string, key: string, reduceMotion: boolean) => {
     return (
       <div key={key} className="flex gap-2 break-words">
         <span className="text-zinc-600">{ordered[1]}.</span>
-        <span className="min-w-0 break-words">{renderInline(ordered[2], key, reduceMotion)}</span>
+        <span className="min-w-0 break-words">{renderInline(ordered[2], key, reduceMotion, animateText)}</span>
       </div>
     );
   }
@@ -210,7 +215,7 @@ const renderTextLine = (line: string, key: string, reduceMotion: boolean) => {
 
   return (
     <div key={key} className="break-words [overflow-wrap:anywhere]">
-      {renderInline(line, key, reduceMotion)}
+      {renderInline(line, key, reduceMotion, animateText)}
     </div>
   );
 };
@@ -225,9 +230,11 @@ const trimEdgeBlankLines = (lines: string[]) => {
   return lines.slice(start, end);
 };
 
-const renderTextBlock = (block: TextBlock, blockIndex: number, reduceMotion: boolean) => (
+const renderTextBlock = (block: TextBlock, blockIndex: number, reduceMotion: boolean, animateText: boolean) => (
   <div key={`text-${blockIndex}`} className="space-y-1 break-words [overflow-wrap:anywhere]">
-    {trimEdgeBlankLines(block.lines).map((line, lineIndex) => renderTextLine(line, `text-${blockIndex}-${lineIndex}`, reduceMotion))}
+    {trimEdgeBlankLines(block.lines).map((line, lineIndex) => (
+      renderTextLine(line, `text-${blockIndex}-${lineIndex}`, reduceMotion, animateText)
+    ))}
   </div>
 );
 
@@ -266,7 +273,7 @@ const renderCodeCard = (block: CodeBlock, blockIndex: number, openPreview: (prev
   );
 };
 
-const renderTableCard = (block: TableBlock, blockIndex: number, openPreview: (preview: PreviewState) => void, reduceMotion: boolean) => {
+const renderTableCard = (block: TableBlock, blockIndex: number, openPreview: (preview: PreviewState) => void, reduceMotion: boolean, animateText: boolean) => {
   const columns = block.rows[0]?.length ?? 0;
   const rows = Math.max(block.rows.length - 1, 0);
 
@@ -295,7 +302,7 @@ const renderTableCard = (block: TableBlock, blockIndex: number, openPreview: (pr
             <tr>
               {(block.rows[0] || []).map((cell, index) => (
                 <th key={index} className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#050505] px-3 py-2 text-left font-medium text-zinc-100 align-top shadow-[0_1px_0_rgba(255,255,255,0.04)]">
-                  {renderInline(cell, `table-${blockIndex}-h-${index}`, reduceMotion)}
+                  {renderInline(cell, `table-${blockIndex}-h-${index}`, reduceMotion, animateText)}
                 </th>
               ))}
             </tr>
@@ -305,7 +312,7 @@ const renderTableCard = (block: TableBlock, blockIndex: number, openPreview: (pr
               <tr key={rowIndex} className="border-b border-white/[0.035] last:border-0">
                 {(block.rows[0] || []).map((_, cellIndex) => (
                   <td key={cellIndex} className="max-w-[240px] px-3 py-2 align-top text-neutral-400 break-words [overflow-wrap:anywhere]">
-                    {renderInline(row[cellIndex] || '', `table-${blockIndex}-${rowIndex}-${cellIndex}`, reduceMotion)}
+                    {renderInline(row[cellIndex] || '', `table-${blockIndex}-${rowIndex}-${cellIndex}`, reduceMotion, animateText)}
                   </td>
                 ))}
               </tr>
@@ -339,7 +346,7 @@ const renderTablePreview = (block: TableBlock, reduceMotion: boolean) => {
           <tr>
             {head.map((cell, index) => (
               <th key={index} className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#050505] px-3 py-2 text-left font-medium text-zinc-100 align-top shadow-[0_1px_0_rgba(255,255,255,0.04)]">
-                {renderInline(cell, `preview-h-${index}`, reduceMotion)}
+                {renderInline(cell, `preview-h-${index}`, reduceMotion, false)}
               </th>
             ))}
           </tr>
@@ -349,7 +356,7 @@ const renderTablePreview = (block: TableBlock, reduceMotion: boolean) => {
             <tr key={rowIndex} className="border-b border-white/[0.035] last:border-0">
               {head.map((_, cellIndex) => (
                 <td key={cellIndex} className="max-w-[240px] px-3 py-2 align-top text-neutral-400 break-words [overflow-wrap:anywhere]">
-                  {renderInline(row[cellIndex] || '', `preview-${rowIndex}-${cellIndex}`, reduceMotion)}
+                  {renderInline(row[cellIndex] || '', `preview-${rowIndex}-${cellIndex}`, reduceMotion, false)}
                 </td>
               ))}
             </tr>
@@ -383,18 +390,18 @@ const MarkdownPreviewDialog = ({ preview, onClose, reduceMotion }: { preview: Pr
   </div>
 );
 
-export const MarkdownMessage = memo(function MarkdownMessage({ content, reduceMotion = false }: MarkdownMessageProps) {
+export const MarkdownMessage = memo(function MarkdownMessage({ content, reduceMotion = false, animateText = false }: MarkdownMessageProps) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
-  const blocks = parseBlocks(content);
+  const blocks = useMemo(() => parseBlocks(content), [content]);
 
   return (
     <>
       <div className="w-full max-w-full space-y-2 break-words [overflow-wrap:anywhere]">
         {blocks.map((block, index) => (
           <Fragment key={index}>
-            {block.type === 'text' && renderTextBlock(block, index, reduceMotion)}
+            {block.type === 'text' && renderTextBlock(block, index, reduceMotion, animateText)}
             {block.type === 'code' && renderCodeCard(block, index, setPreview)}
-            {block.type === 'table' && renderTableCard(block, index, setPreview, reduceMotion)}
+            {block.type === 'table' && renderTableCard(block, index, setPreview, reduceMotion, animateText)}
           </Fragment>
         ))}
       </div>

@@ -4,9 +4,10 @@ interface VirtualMessageProps {
   children: ReactNode;
   rootRef: RefObject<HTMLElement>;
   estimate?: number;
+  measureKey?: string;
 }
 
-export function VirtualMessage({ children, rootRef, estimate = 160 }: VirtualMessageProps) {
+export function VirtualMessage({ children, rootRef, estimate = 160, measureKey }: VirtualMessageProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [isVisible, setIsVisible] = useState(true);
@@ -44,7 +45,7 @@ export function VirtualMessage({ children, rootRef, estimate = 160 }: VirtualMes
     const observer = new ResizeObserver(updateHeight);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [isVisible, children]);
+  }, [isVisible, measureKey]);
 
   return (
     <div ref={shellRef} style={{ minHeight: isVisible ? undefined : height }}>
