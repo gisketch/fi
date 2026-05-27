@@ -23,6 +23,7 @@ Cross-cutting concerns enter through explicit provider interfaces.
   - [services/hermesGateway.ts](../../src/services/hermesGateway.ts): Typed static RPC facade for sessions, prompts, commands, config, tools, skills, voice, delegation, browser, shell/CLI, reload, rollback, agents, cron, insights, model, plugins, paste, and blocking responses.
   - [services/hermesRest.ts](../../src/services/hermesRest.ts): REST convenience client and SSE event stream fallback.
   - [services/terminalGateway.ts](../../src/services/terminalGateway.ts): Browser client for the separate terminal gateway, including whole-app PIN unlock, token verification, local SSH profile storage, and terminal WebSocket URL construction.
+  - [services/tasks.ts](../../src/services/tasks.ts): Authenticated REST client for the VPS task API under `/v1/tasks`; uses the regular Hermes web token and never the admin token.
   - [services/pwaUpdates.ts](../../src/services/pwaUpdates.ts): Service worker update registration, manual update checks, and update activation for the installed PWA.
   - [services/api.ts](../../src/services/api.ts): Deprecated legacy Fi Gateway run/thread service kept only for usage JSON and temporary compatibility until cleanup.
   - [state/hermesEventReducer.ts](../../src/state/hermesEventReducer.ts): Pure event reducer for sessions, chat messages, tool lifecycle, thinking/reasoning, blocking prompts, voice, browser progress, and errors.
@@ -32,7 +33,8 @@ Cross-cutting concerns enter through explicit provider interfaces.
   - [components/VirtualMessage.tsx](../../src/components/VirtualMessage.tsx): Viewport virtualization for older chat messages.
   - [components/UsageWidget.tsx](../../src/components/UsageWidget.tsx): Legacy usage status component; current app also fetches usage directly for the compact composer pill.
   - [components/SettingsModal.tsx](../../src/components/SettingsModal.tsx): Legacy settings/model sheet not currently mounted by `App.tsx`.
-  - [App.tsx](../../src/App.tsx): Whole-app PIN gate plus primary Fi iOS PWA shell, chat timeline, compact composer, menu, sessions dialog, control center, terminal entry point, PWA update prompt, appearance settings, notifications, blocking prompts, and usage pill.
+  - [components/tasks](../../src/components/tasks): Task focus widget, full task center sheet, and task detail editor backed by the VPS task DB API.
+  - [App.tsx](../../src/App.tsx): Whole-app PIN gate plus primary Fi iOS PWA shell, chat timeline, compact composer, menu, tasks, sessions dialog, control center, terminal entry point, PWA update prompt, appearance settings, notifications, blocking prompts, and usage pill.
   - [index.css](../../src/index.css): Design systems & tailwind v4 styles, including Performant and Terminal appearance modes.
 - [tests](../../tests): Fixture directory for Hermes reducer/event smoke checks.
 - [config](../../config): Environment contract and security notes.
@@ -47,5 +49,6 @@ Cross-cutting concerns enter through explicit provider interfaces.
 - **Transport priority**: WebSocket JSON-RPC is primary because it covers the full Hermes Web API. REST is convenience/fallback. SSE is passive event fallback.
 - **Session model**: New behavior is session-oriented. Old run/thread names may remain only as compatibility aliases while UI migration finishes.
 - **Terminal gateway separation**: In-app terminal uses a separate private WebSSH gateway configured by `VITE_TERMINAL_GATEWAY_URL`; it does not reuse Hermes `/api/ws`.
+- **Task source of truth**: Task UI calls `https://fi.gisketch.com/v1/tasks/*`; the VPS SQLite task DB remains authoritative for Fi, nudges, CLI, and AI task updates.
 - **Forward compatibility**: External API payloads preserve unknown fields instead of dropping data.
 - **Responsive Shell**: Interface viewport limits are strictly locked on iPhone ratios to prevent standalone app bounce.

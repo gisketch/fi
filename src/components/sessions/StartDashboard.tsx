@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { RefreshCw, Search, X } from 'lucide-react';
 import { SessionRowModel, SessionRows } from './SessionRows';
 import { randomDashboardHeroCopy } from '../../copy/fiPersonality';
+import { TaskFocusWidget } from '../tasks/TaskFocusWidget';
 
 interface StartDashboardProps {
   sessions: SessionRowModel[];
@@ -13,6 +14,9 @@ interface StartDashboardProps {
   onTogglePinSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onRefresh: () => void;
+  onOpenTasks: () => void;
+  onAddTaskWithFi: () => void;
+  taskRefreshKey?: number;
 }
 
 export const StartDashboard = ({
@@ -24,6 +28,9 @@ export const StartDashboard = ({
   onTogglePinSession,
   onDeleteSession,
   onRefresh,
+  onOpenTasks,
+  onAddTaskWithFi,
+  taskRefreshKey = 0,
 }: StartDashboardProps) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -44,7 +51,7 @@ export const StartDashboard = ({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22 }}
-      className="space-y-5 py-8"
+      className="flex h-full min-h-0 flex-col gap-5 py-8"
     >
       <div className="shrink-0 space-y-5 select-none text-center">
         <h2 className="mx-auto max-w-xs font-serif-hermes text-[26px] font-light leading-snug tracking-wide text-neutral-300">
@@ -54,6 +61,12 @@ export const StartDashboard = ({
           {heroCopy.subtitle}
         </p>
       </div>
+
+      <TaskFocusWidget
+        refreshKey={taskRefreshKey}
+        onOpenTasks={onOpenTasks}
+        onAddWithFi={onAddTaskWithFi}
+      />
 
       <div className="flex shrink-0 items-center justify-between gap-4 pt-2">
         {searchOpen ? (
@@ -109,10 +122,10 @@ export const StartDashboard = ({
         </div>
       )}
 
-      <div className="relative">
+      <div className="relative min-h-0 flex-1">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-5 bg-gradient-to-b from-black to-transparent" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-gradient-to-t from-black to-transparent" />
-        <div className="h-[calc(100svh-26rem)] min-h-[18rem]">
+        <div className="h-full min-h-[12rem]">
           {filteredSessions.length > 0 ? (
             <SessionRows
               sessions={filteredSessions}

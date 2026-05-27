@@ -13,6 +13,7 @@ import { StartDashboard } from './components/sessions/StartDashboard';
 import type { SessionRowModel } from './components/sessions/SessionRows';
 import { ControlCenterDialog } from './components/dialogs/ControlCenterDialog';
 import { BlockingPromptsDialog } from './components/dialogs/BlockingPromptsDialog';
+import { TaskCenterDialog } from './components/tasks/TaskCenterDialog';
 import { enableNotifications, getNotificationSupport } from './services/notifications';
 import ArrowUp from '@solar-icons/react/icons/arrows/ArrowUp';
 import StopCircle from '@solar-icons/react/icons/video/StopCircle';
@@ -26,7 +27,7 @@ import MinimalisticMagnifier from '@solar-icons/react/icons/search/MinimalisticM
 import PenNewSquare from '@solar-icons/react/icons/messages/PenNewSquare';
 import WindowFrame from '@solar-icons/react/icons/it/WindowFrame';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, Check, Coins, Copy, Gauge, KeyRound, Layers, Menu, RefreshCw, Settings2, Terminal, X, Brain, Cpu } from 'lucide-react';
+import { Bell, Check, Coins, Copy, Gauge, KeyRound, Layers, ListTodo, Menu, RefreshCw, Settings2, Terminal, X, Brain, Cpu } from 'lucide-react';
 import { MarkdownMessage } from './components/MarkdownMessage';
 import { VirtualMessage } from './components/VirtualMessage';
 import { randomComposerPlaceholder, randomDashboardHeroCopy } from './copy/fiPersonality';
@@ -929,6 +930,7 @@ function AppShell() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
   const [isControlCenterOpen, setIsControlCenterOpen] = useState(false);
+  const [isTasksOpen, setIsTasksOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionRowModel[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -954,9 +956,11 @@ function AppShell() {
   const [contextCompletionLoading, setContextCompletionLoading] = useState(false);
   const [contextCompletionError, setContextCompletionError] = useState<string | null>(null);
   const [selectedContextIndex, setSelectedContextIndex] = useState(0);
+  const [taskRefreshKey, setTaskRefreshKey] = useState(0);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previousRunningRef = useRef(isRunning);
   const slashSuggestions = getSlashSuggestions(slashCommands, inputValue);
   const slashToken = getSlashToken(inputValue);
   const isSlashPrompt = Boolean(slashToken);
@@ -974,6 +978,13 @@ function AppShell() {
   }, [appearanceSettings]);
 
   useEffect(() => subscribePwaUpdates(setPwaUpdate), []);
+
+  useEffect(() => {
+    if (previousRunningRef.current && !isRunning) {
+      setTaskRefreshKey((current) => current + 1);
+    }
+    previousRunningRef.current = isRunning;
+  }, [isRunning]);
 
   // Sync usage balance silently in background
   useEffect(() => {
@@ -1398,6 +1409,12 @@ function AppShell() {
     void refreshSessions();
   };
 
+  const openTasks = () => {
+    setIsMenuOpen(false);
+    setIsTasksOpen(true);
+    setTaskRefreshKey((current) => current + 1);
+  };
+
   const handleStartBlankDraft = () => {
     startBlankDraft();
     setInputValue('');
@@ -1425,6 +1442,24 @@ function AppShell() {
   const openControlCenter = () => {
     setIsMenuOpen(false);
     setIsControlCenterOpen(true);
+  };
+
+  const handleAddTaskWithFi = () => {
+    startBlankDraft();
+    const prompt = 'Add a task: ';
+    setInputValue(prompt);
+    setSessionUsage(null);
+    setIsMenuOpen(false);
+    setIsTasksOpen(false);
+    setFooterPicker(null);
+    setIsPromptExpanded(true);
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = 0;
+    }
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(prompt.length, prompt.length);
+    });
   };
 
   const handleCheckForUpdate = () => {
@@ -1547,6 +1582,7 @@ function AppShell() {
   const contextRingPercent = clampPercent(contextPercent);
   const menuItems = [
     { label: 'New', icon: PenNewSquare, action: handleStartBlankDraft },
+    { label: 'Tasks', icon: ListTodo, action: openTasks },
     { label: 'Sessions', icon: Layers, action: openSessions },
     { label: 'Controls', icon: Settings2, action: openControlCenter },
     { label: 'Notifications', icon: Bell, action: openNotifications },
@@ -1641,7 +1677,7 @@ function AppShell() {
         ref={chatContainerRef}
         className={`flex-1 px-6 py-4 space-y-8 z-10 relative no-scrollbar ${showingStartDashboard ? 'overflow-hidden' : 'ios-scrollable'}`}
       >
-        <div className="max-w-xl mx-auto space-y-8">
+        <div className={`max-w-xl mx-auto ${showingStartDashboard ? 'h-full min-h-0' : 'space-y-8'}`}>
           
           {/* Ethereal suggestions shown when chat is completely empty */}
           {messages.length === 0 && (
@@ -1668,6 +1704,9 @@ function AppShell() {
                 onTogglePinSession={handleTogglePinSession}
                 onDeleteSession={handleDeleteSession}
                 onRefresh={refreshSessions}
+                onOpenTasks={openTasks}
+                onAddTaskWithFi={handleAddTaskWithFi}
+                taskRefreshKey={taskRefreshKey}
               />
             ) : (
               <motion.div 
@@ -1798,6 +1837,17 @@ function AppShell() {
             onBranchSession={handleBranchSession}
             onRenameSession={handleRenameSession}
             onTogglePinSession={handleTogglePinSession}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isTasksOpen && (
+          <TaskCenterDialog
+            refreshKey={taskRefreshKey}
+            reduceMotion={reduceMotion}
+            onClose={() => setIsTasksOpen(false)}
+            onAddWithFi={handleAddTaskWithFi}
           />
         )}
       </AnimatePresence>
