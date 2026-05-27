@@ -1,4 +1,4 @@
-import { HERMES_API_URL, HERMES_WEB_TOKEN, getHermesWebToken } from '../config/hermes';
+import { HERMES_API_URL, getHermesWebToken } from '../config/hermes';
 import type {
   TaskCreateRequest,
   TaskItem,
@@ -10,7 +10,7 @@ import type {
 } from '../types/tasks';
 
 const getAuthHeaders = async (): Promise<Record<string, string>> => {
-  const token = HERMES_WEB_TOKEN || await getHermesWebToken();
+  const token = await getHermesWebToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
