@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Clock3, Save, XCircle } from 'lucide-react';
+import { Check, ChevronLeft, Clock3, Save, XCircle } from 'lucide-react';
 import type { TaskItem, TaskPriority, TaskStatus, TaskUpdateRequest } from '../../types/tasks';
 import { deadlineLabel, priorityLabel, statusLabel } from './taskFormat';
 
@@ -11,6 +11,7 @@ interface TaskDetailPanelProps {
   onDone: (taskId: number) => Promise<void>;
   onTomorrow: (taskId: number) => Promise<void>;
   onCancelTask: (taskId: number) => Promise<void>;
+  onBack?: () => void;
 }
 
 const priorityOptions: TaskPriority[] = [1, 2, 3];
@@ -24,6 +25,7 @@ export const TaskDetailPanel = ({
   onDone,
   onTomorrow,
   onCancelTask,
+  onBack,
 }: TaskDetailPanelProps) => {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || '');
@@ -57,23 +59,35 @@ export const TaskDetailPanel = ({
   };
 
   return (
-    <div className="space-y-4">
-      <div>
-        <div className="font-mono text-[10px] uppercase tracking-wider text-neutral-600">
-          #{task.id} / {deadlineLabel(task, today)}
-        </div>
-        <div className="mt-1 font-serif-hermes text-[18px] italic text-zinc-200">
-          Task Detail
+    <div className="flex min-h-full flex-col gap-3">
+      <div className="flex items-start gap-2">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.06] text-neutral-500 active:scale-95 md:hidden"
+            aria-label="Back to tasks"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
+        <div className="min-w-0">
+          <div className="truncate font-mono text-[10px] uppercase tracking-wider text-neutral-600">
+            #{task.id} / {deadlineLabel(task, today)}
+          </div>
+          <div className="mt-1 truncate font-serif-hermes text-[17px] italic text-zinc-200">
+            Task Detail
+          </div>
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="min-h-0 flex-1 space-y-2.5">
         <label className="block">
           <span className="mb-1 block font-mono text-[10px] uppercase tracking-wider text-neutral-600">Title</span>
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5 text-[14px] text-zinc-100 outline-none"
+            className="min-h-11 w-full rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 text-[14px] text-zinc-100 outline-none"
           />
         </label>
 
@@ -82,7 +96,7 @@ export const TaskDetailPanel = ({
           <textarea
             value={description}
             onChange={(event) => setDescription(event.target.value)}
-            rows={4}
+            rows={3}
             className="w-full resize-none rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5 text-[13px] leading-relaxed text-zinc-200 outline-none no-scrollbar"
           />
         </label>
@@ -94,7 +108,7 @@ export const TaskDetailPanel = ({
               type="date"
               value={deadline}
               onChange={(event) => setDeadline(event.target.value)}
-              className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5 font-mono text-[12px] text-zinc-200 outline-none"
+              className="min-h-11 w-full rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 font-mono text-[12px] text-zinc-200 outline-none"
             />
           </label>
           <label className="block">
@@ -102,7 +116,7 @@ export const TaskDetailPanel = ({
             <input
               value={category}
               onChange={(event) => setCategory(event.target.value)}
-              className="w-full rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5 text-[13px] text-zinc-200 outline-none"
+              className="min-h-11 w-full rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 text-[13px] text-zinc-200 outline-none"
             />
           </label>
         </div>
@@ -113,7 +127,7 @@ export const TaskDetailPanel = ({
             <select
               value={priority}
               onChange={(event) => setPriority(Number(event.target.value) as TaskPriority)}
-              className="w-full rounded-2xl border border-white/[0.06] bg-neutral-950 px-3 py-2.5 font-mono text-[12px] text-zinc-200 outline-none"
+              className="min-h-11 w-full rounded-2xl border border-white/[0.06] bg-neutral-950 px-3 font-mono text-[12px] text-zinc-200 outline-none"
             >
               {priorityOptions.map((option) => (
                 <option key={option} value={option}>{priorityLabel(option)}</option>
@@ -125,7 +139,7 @@ export const TaskDetailPanel = ({
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value as TaskStatus)}
-              className="w-full rounded-2xl border border-white/[0.06] bg-neutral-950 px-3 py-2.5 font-mono text-[12px] text-zinc-200 outline-none"
+              className="min-h-11 w-full rounded-2xl border border-white/[0.06] bg-neutral-950 px-3 font-mono text-[12px] text-zinc-200 outline-none"
             >
               {statusOptions.map((option) => (
                 <option key={option} value={option}>{statusLabel(option)}</option>
@@ -135,12 +149,12 @@ export const TaskDetailPanel = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="sticky bottom-0 -mx-3 -mb-3 grid grid-cols-2 gap-2 border-t border-white/[0.04] bg-neutral-950/95 px-3 pb-3 pt-3 backdrop-blur-xl md:static md:mx-0 md:mb-0 md:border-0 md:bg-transparent md:p-0">
         <button
           type="button"
           onClick={() => void save()}
           disabled={!canSave}
-          className="flex min-h-10 items-center justify-center gap-2 rounded-full bg-white text-[12px] font-medium text-black disabled:bg-neutral-850 disabled:text-neutral-600 active:scale-[0.98]"
+          className="flex min-h-11 items-center justify-center gap-2 rounded-full bg-white text-[12px] font-medium text-black disabled:bg-neutral-850 disabled:text-neutral-600 active:scale-[0.98]"
         >
           <Save className="h-3.5 w-3.5" />
           Save
@@ -149,7 +163,7 @@ export const TaskDetailPanel = ({
           type="button"
           onClick={() => void onDone(task.id)}
           disabled={busy || inactive}
-          className="flex min-h-10 items-center justify-center gap-2 rounded-full border border-white/[0.08] text-[12px] text-neutral-300 disabled:text-neutral-700 active:scale-[0.98]"
+          className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/[0.08] text-[12px] text-neutral-300 disabled:text-neutral-700 active:scale-[0.98]"
         >
           <Check className="h-3.5 w-3.5" />
           Done
@@ -158,7 +172,7 @@ export const TaskDetailPanel = ({
           type="button"
           onClick={() => void onTomorrow(task.id)}
           disabled={busy || inactive}
-          className="flex min-h-10 items-center justify-center gap-2 rounded-full border border-white/[0.08] text-[12px] text-neutral-300 disabled:text-neutral-700 active:scale-[0.98]"
+          className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/[0.08] text-[12px] text-neutral-300 disabled:text-neutral-700 active:scale-[0.98]"
         >
           <Clock3 className="h-3.5 w-3.5" />
           Tomorrow
@@ -167,7 +181,7 @@ export const TaskDetailPanel = ({
           type="button"
           onClick={() => void onCancelTask(task.id)}
           disabled={busy || task.status === 'cancelled'}
-          className="flex min-h-10 items-center justify-center gap-2 rounded-full border border-red-400/10 text-[12px] text-red-200/70 disabled:text-neutral-700 active:scale-[0.98]"
+          className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/[0.08] text-[12px] text-neutral-500 disabled:text-neutral-700 active:scale-[0.98]"
         >
           <XCircle className="h-3.5 w-3.5" />
           Cancel

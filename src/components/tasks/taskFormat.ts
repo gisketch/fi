@@ -18,7 +18,7 @@ export const isOverdue = (task: TaskItem, today?: string) => (
 export const deadlineLabel = (task: TaskItem, today?: string) => {
   if (!task.deadline) return 'No deadline';
   if (today && task.deadline === today) return 'Today';
-  if (isOverdue(task, today)) return `Overdue ${task.deadline}`;
+  if (isOverdue(task, today)) return `Past due / ${task.deadline}`;
   return task.deadline;
 };
 
