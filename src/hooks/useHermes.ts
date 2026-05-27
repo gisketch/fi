@@ -34,6 +34,39 @@ export interface ChatMessage {
 
 const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+const renderCommandValue = (value: unknown): string => {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value === 'string') return value;
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const commandOutputFromPayload = (payload: any): string => {
+  const parts = [
+    payload?.warning ? `Warning: ${payload.warning}` : '',
+    payload?.output,
+    payload?.text,
+    payload?.message,
+    payload?.result,
+    payload?.stdout,
+    payload?.stderr,
+  ]
+    .map(renderCommandValue)
+    .filter(Boolean);
+
+  if (parts.length) return parts.join('\n\n').trim();
+
+  if (payload && typeof payload === 'object') {
+    return renderCommandValue(payload);
+  }
+
+  return '';
+};
+
 export function useHermes() {
   const [state, dispatch] = useReducer(hermesEventReducer, initialHermesState);
   const [currentThreadTitle, setCurrentThreadTitle] = useState<string | null>(null);
@@ -260,23 +293,35 @@ export function useHermes() {
     }
 
     try {
-      const res = await HermesGateway.execSlash(sessionId || '', trimmed);
-      const output = [
-        res.warning ? `Warning: ${res.warning}` : '',
-        res.output || '',
-      ].filter(Boolean).join('\n\n') || `Executed ${trimmed}`;
+      const [commandName, ...argParts] = trimmed.split(/\s+/);
+      const args = argParts.join(' ');
+      const res = await HermesGateway.dispatchCommand(sessionId || '', commandName, args);
+      const output = commandOutputFromPayload(res) || `Executed ${trimmed}`;
 
       dispatch({
         type: 'message.complete',
         payload: { text: output, status: 'completed' }
       });
     } catch (e: any) {
-      const message = `Slash command failed: ${e.message}`;
-      dispatch({ type: 'error', payload: { message } });
-      dispatch({
-        type: 'message.complete',
-        payload: { text: message, status: 'failed' }
-      });
+      try {
+        const res = await HermesGateway.execSlash(sessionId || '', trimmed);
+        const output = [
+          res.warning ? `Warning: ${res.warning}` : '',
+          res.output || '',
+        ].filter(Boolean).join('\n\n') || `Executed ${trimmed}`;
+
+        dispatch({
+          type: 'message.complete',
+          payload: { text: output, status: 'completed' }
+        });
+      } catch (fallbackErr: any) {
+        const message = `Slash command failed: ${fallbackErr.message || e.message}`;
+        dispatch({ type: 'error', payload: { message } });
+        dispatch({
+          type: 'message.complete',
+          payload: { text: message, status: 'failed' }
+        });
+      }
     }
   }, [state.isRunning, state.messages, createSession]);
 
