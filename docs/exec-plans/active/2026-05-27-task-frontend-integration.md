@@ -41,12 +41,14 @@ Add full Fi frontend task integration backed by the VPS `/v1/tasks` API.
 - Use existing shell dialogs instead of adding routing.
 - Keep task creation conversational: `Add with Fi` primes the composer rather than opening a manual create form.
 - Use direct REST task actions for Done, Tomorrow, Cancel, and edits.
-- Keep overdue/past-due task treatment neutral; avoid red urgency styling in task UI.
+- Use only subtle red section treatment for overdue; avoid red cards/backgrounds.
 - Optimize task center for phone first: list-or-detail on mobile, split pane on larger screens.
+- Task Center is the existing task sheet evolved with `/tasks?focus=` deep links, not a duplicate task UI.
 
 ## Progress Log
 
 - 2026-05-27: Started full frontend task integration.
 - 2026-05-27: Added task API client, dashboard widget, task center, edit panel, menu wiring, composer shortcut, and architecture note.
 - 2026-05-27: Validation passed.
-- 2026-05-27: Readjusted task UI for mobile density, neutral past-due labels, compact widget, and mobile detail flow.
+- 2026-05-27: Readjusted task UI for mobile density, subtle overdue section treatment, compact widget, and mobile detail flow.
+- 2026-05-27: Added Task Center naming, notification/cold-start task deep links, grouped active task sections, and push docs note.

@@ -33,3 +33,13 @@ from = "/runtime-api/hermes-config"
 to = "/.netlify/functions/hermes-config"
 status = 200
 force = true
+
+[[redirects]]
+from = "/tasks"
+to = "/index.html"
+status = 200
+
+[[redirects]]
+from = "/tasks/*"
+to = "/index.html"
+status = 200

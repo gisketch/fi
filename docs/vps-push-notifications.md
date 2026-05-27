@@ -160,6 +160,7 @@ Fields:
 - `body`: notification body.
 - Do not prefix the title or body with `from Fi`; Fi strips that redundant sender text before delivery. iOS may still render its own `from <app name>` attribution line.
 - `url`: path opened when the notification is tapped.
+- Task nudges can use `url: "/tasks?focus=<task_id>"`; Fi focuses any existing PWA client and opens Task Center on that task.
 - `tag`: browser grouping/replacement key.
 - `icon`: optional icon path.
 - `badge`: optional badge path.

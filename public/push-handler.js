@@ -38,10 +38,14 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil((async () => {
     const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const existingClient = windowClients.find((client) => client.url === targetUrl);
+    const anyClient = windowClients.length > 0 ? windowClients[0] : null;
 
-    if (existingClient) {
-      await existingClient.focus();
+    if (anyClient) {
+      await anyClient.focus();
+      anyClient.postMessage({
+        type: 'fi.navigate',
+        url: event.notification.data?.url || '/',
+      });
       return;
     }
 

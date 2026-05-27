@@ -13,7 +13,7 @@ import { StartDashboard } from './components/sessions/StartDashboard';
 import type { SessionRowModel } from './components/sessions/SessionRows';
 import { ControlCenterDialog } from './components/dialogs/ControlCenterDialog';
 import { BlockingPromptsDialog } from './components/dialogs/BlockingPromptsDialog';
-import { TaskCenterDialog } from './components/tasks/TaskCenterDialog';
+import { TaskCenter } from './components/tasks/TaskCenter';
 import { enableNotifications, getNotificationSupport } from './services/notifications';
 import ArrowUp from '@solar-icons/react/icons/arrows/ArrowUp';
 import StopCircle from '@solar-icons/react/icons/video/StopCircle';
@@ -40,6 +40,16 @@ import type { ToolTraceGroup } from './utils/toolTrace';
 const TerminalScreen = lazy(() =>
   import('./components/terminal/TerminalScreen').then((module) => ({ default: module.TerminalScreen }))
 );
+
+type TaskRoute = { focusId: number | null };
+
+const taskRouteFromUrl = (rawUrl: string): TaskRoute | null => {
+  const url = new URL(rawUrl, window.location.origin);
+  if (!url.pathname.startsWith('/tasks')) return null;
+  const focus = url.searchParams.get('focus');
+  const focusId = focus ? Number(focus) : null;
+  return { focusId: Number.isFinite(focusId) ? focusId : null };
+};
 
 const AppPinGate = ({ children }: { children: ReactNode }) => {
   const [pin, setPin] = useState('');
@@ -930,7 +940,7 @@ function AppShell() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSessionsOpen, setIsSessionsOpen] = useState(false);
   const [isControlCenterOpen, setIsControlCenterOpen] = useState(false);
-  const [isTasksOpen, setIsTasksOpen] = useState(false);
+  const [taskRoute, setTaskRoute] = useState<TaskRoute | null>(null);
   const [sessions, setSessions] = useState<SessionRowModel[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -978,6 +988,24 @@ function AppShell() {
   }, [appearanceSettings]);
 
   useEffect(() => subscribePwaUpdates(setPwaUpdate), []);
+
+  useEffect(() => {
+    const initialTaskRoute = taskRouteFromUrl(window.location.href);
+    if (initialTaskRoute) setTaskRoute(initialTaskRoute);
+
+    if (!('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'fi.navigate') return;
+      const nextTaskRoute = taskRouteFromUrl(event.data.url || '/');
+      if (!nextTaskRoute) return;
+      window.history.replaceState(null, '', event.data.url || '/');
+      setTaskRoute(nextTaskRoute);
+      setTaskRefreshKey((current) => current + 1);
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+  }, []);
 
   useEffect(() => {
     if (previousRunningRef.current && !isRunning) {
@@ -1411,7 +1439,7 @@ function AppShell() {
 
   const openTasks = () => {
     setIsMenuOpen(false);
-    setIsTasksOpen(true);
+    setTaskRoute({ focusId: null });
     setTaskRefreshKey((current) => current + 1);
   };
 
@@ -1450,7 +1478,7 @@ function AppShell() {
     setInputValue(prompt);
     setSessionUsage(null);
     setIsMenuOpen(false);
-    setIsTasksOpen(false);
+    setTaskRoute(null);
     setFooterPicker(null);
     setIsPromptExpanded(true);
     if (chatContainerRef.current) {
@@ -1842,11 +1870,17 @@ function AppShell() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {isTasksOpen && (
-          <TaskCenterDialog
+        {taskRoute && (
+          <TaskCenter
+            focusId={taskRoute.focusId}
             refreshKey={taskRefreshKey}
             reduceMotion={reduceMotion}
-            onClose={() => setIsTasksOpen(false)}
+            onClose={() => {
+              setTaskRoute(null);
+              if (window.location.pathname.startsWith('/tasks')) {
+                window.history.replaceState(null, '', '/');
+              }
+            }}
             onAddWithFi={handleAddTaskWithFi}
           />
         )}

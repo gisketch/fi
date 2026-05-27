@@ -108,3 +108,20 @@ export class TaskApi {
     return this.postponeTask(id);
   }
 }
+
+export const listTasks = (status?: TaskListStatus, category?: string, limit?: number) =>
+  TaskApi.listTasks({ status, category, limit });
+
+export const getTask = (id: number) => TaskApi.getTask(id);
+
+export const createTask = (data: TaskCreateRequest) => TaskApi.createTask(data);
+
+export const updateTask = (id: number, patch: TaskUpdateRequest) => TaskApi.updateTask(id, patch);
+
+export const markTaskDone = (id: number) => TaskApi.markDone(id);
+
+export const cancelTask = (id: number) => TaskApi.cancelTask(id);
+
+export const postponeTask = (id: number, to?: string | null) => TaskApi.postponeTask(id, { to });
+
+export const getTaskWidget = () => TaskApi.getWidget();
