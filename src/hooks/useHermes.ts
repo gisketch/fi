@@ -67,6 +67,12 @@ const commandOutputFromPayload = (payload: any): string => {
   return '';
 };
 
+const shouldSubmitCommandPayload = (payload: any): payload is { message: string; type: string } => (
+  payload?.type === 'skill' &&
+  typeof payload.message === 'string' &&
+  payload.message.trim().length > 0
+);
+
 export function useHermes() {
   const [state, dispatch] = useReducer(hermesEventReducer, initialHermesState);
   const [currentThreadTitle, setCurrentThreadTitle] = useState<string | null>(null);
@@ -296,6 +302,12 @@ export function useHermes() {
       const [commandName, ...argParts] = trimmed.split(/\s+/);
       const args = argParts.join(' ');
       const res = await HermesGateway.dispatchCommand(sessionId || '', commandName, args);
+
+      if (shouldSubmitCommandPayload(res)) {
+        await HermesGateway.submitPrompt(sessionId || '', res.message);
+        return;
+      }
+
       const output = commandOutputFromPayload(res) || `Executed ${trimmed}`;
 
       dispatch({

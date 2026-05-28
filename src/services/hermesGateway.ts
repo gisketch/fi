@@ -115,8 +115,8 @@ export class HermesGateway {
   }
 
   // --- Commands & Dispatch ---
-  public static async dispatchCommand(sessionId: string, command: string, args?: string): Promise<any> {
-    return hermesTransport.request('command.dispatch', { session_id: sessionId, command, args });
+  public static async dispatchCommand(sessionId: string, name: string, args?: string): Promise<any> {
+    return hermesTransport.request('command.dispatch', { session_id: sessionId, name, args });
   }
 
   public static async resolveCommand(command: string): Promise<any> {
